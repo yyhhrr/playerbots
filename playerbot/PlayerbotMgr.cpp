@@ -517,12 +517,19 @@ void PlayerbotHolder::OnBotLogin(Player * const bot)
 #endif
         )
     {
+        uint32 travelItemId = 6948;
 #ifdef MANGOSBOT_TWO
         if (bot->getClass() == CLASS_DEATH_KNIGHT && bot->GetMapId() == 609)
-            bot->StoreNewItemInBestSlots(40582, 1);
-        else
+            travelItemId = 40582;
 #endif
-            bot->StoreNewItemInBestSlots(6948, 1);
+        ItemPosCountVec dest;
+        const InventoryResult result = bot->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, travelItemId, 1);
+        if (result == EQUIP_ERR_OK)
+            bot->StoreNewItem(dest, travelItemId, true);
+        else if (result == EQUIP_ERR_INVENTORY_FULL)
+            DEBUG_LOG("BOTS: Deferred travel item %u for bot %u: inventory full.", travelItemId, bot->GetObjectGuid().GetCounter());
+        else
+            sLog.outError("BOTS: Cannot replenish travel item %u for bot %u, inventory error %u.", travelItemId, bot->GetObjectGuid().GetCounter(), uint32(result));
     }
 }
 

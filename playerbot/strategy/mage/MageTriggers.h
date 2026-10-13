@@ -18,6 +18,14 @@ namespace ai
         }
     };
 
+    class LevelingArcaneExplosionTrigger : public Trigger
+    {
+    public:
+        LevelingArcaneExplosionTrigger(PlayerbotAI* ai) : Trigger(ai, "leveling arcane explosion") {}
+        bool IsActive() override { return GetTarget() != nullptr; }
+        Unit* GetTarget() override;
+    };
+
     class ArcaneIntellectOnPartyTrigger : public BuffOnPartyTrigger
     {
     public:

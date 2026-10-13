@@ -316,6 +316,21 @@ namespace ai
         CastArcaneExplosionAction(PlayerbotAI* ai) : CastMeleeAoeSpellAction(ai, "arcane explosion", 10.0f) {}
     };
 
+    class CastLevelingArcaneExplosionAction : public CastArcaneExplosionAction
+    {
+    public:
+        CastLevelingArcaneExplosionAction(PlayerbotAI* ai) : CastArcaneExplosionAction(ai) {}
+        std::string getName() override { return "leveling arcane explosion"; }
+        bool isUseful() override { return bot->GetLevel() < 60 && CastSpellAction::isUseful(); }
+
+    protected:
+        Unit* GetTarget() override
+        {
+            Trigger* trigger = context->GetTrigger("leveling arcane explosion");
+            return trigger ? trigger->GetTarget() : nullptr;
+        }
+    };
+
     class CastConeOfColdAction : public CastMeleeAoeSpellAction
     {
     public:

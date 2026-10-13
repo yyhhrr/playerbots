@@ -212,6 +212,10 @@ void MageRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     AoeStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "leveling arcane explosion",
+        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -639,6 +643,10 @@ void MageRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     AoeStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "leveling arcane explosion",
+        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1062,6 +1070,10 @@ void MageRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     AoeStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "leveling arcane explosion",
+        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

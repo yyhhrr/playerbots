@@ -5,6 +5,31 @@
 
 using namespace ai;
 
+Unit* LevelingArcaneExplosionTrigger::GetTarget()
+{
+    if (bot->getClass() != CLASS_MAGE || bot->GetLevel() >= 60)
+        return nullptr;
+
+    uint32 nearbyCreatures = 0;
+    Unit* spellTarget = nullptr;
+    const std::list<ObjectGuid> targets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+    for (const ObjectGuid& guid : targets)
+    {
+        Unit* target = ai->GetUnit(guid);
+        if (target && !target->IsPlayer() && target->IsAlive() &&
+            bot->IsWithinDistInMap(target, ATTACK_DISTANCE))
+        {
+            if (!spellTarget)
+                spellTarget = target;
+
+            if (++nearbyCreatures > 3)
+                return spellTarget;
+        }
+    }
+
+    return nullptr;
+}
+
 bool AnyMageArmorTrigger::IsActive()
 {
     Unit* target = GetTarget();

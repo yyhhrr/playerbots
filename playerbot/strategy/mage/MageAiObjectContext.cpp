@@ -179,6 +179,7 @@ namespace ai
                 creators["fire ward"] = [](PlayerbotAI* ai) { return new FireWardTrigger(ai); };
                 creators["frost ward"] = [](PlayerbotAI* ai) { return new FrostWardTrigger(ai); };
                 creators["blink"] = [](PlayerbotAI* ai) { return new BlinkTrigger(ai); };
+                creators["leveling arcane explosion"] = [](PlayerbotAI* ai) { return new LevelingArcaneExplosionTrigger(ai); };
                 creators["mana shield"] = [](PlayerbotAI* ai) { return new ManaShieldTrigger(ai); };
                 creators["summon water elemental"] = [](PlayerbotAI* ai) { return new WaterElementalBoostTrigger(ai); };
                 creators["ice lance"] = [](PlayerbotAI* ai) { return new IceLanceTrigger(ai); };
@@ -248,6 +249,7 @@ namespace ai
                 creators["ice barrier"] = [](PlayerbotAI* ai) { return new CastIceBarrierAction(ai); };
                 creators["mana shield"] = [](PlayerbotAI* ai) { return new CastManaShieldAction(ai); };
                 creators["arcane explosion"] = [](PlayerbotAI* ai) { return new CastArcaneExplosionAction(ai); };
+                creators["leveling arcane explosion"] = [](PlayerbotAI* ai) { return new CastLevelingArcaneExplosionAction(ai); };
                 creators["cone of cold"] = [](PlayerbotAI* ai) { return new CastConeOfColdAction(ai); };
                 creators["summon water elemental"] = [](PlayerbotAI* ai) { return new CastSummonWaterElementalAction(ai); };
                 creators["ice lance"] = [](PlayerbotAI* ai) { return new CastIceLanceAction(ai); };

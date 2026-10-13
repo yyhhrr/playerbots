@@ -528,7 +528,8 @@ void RandomPlayerbotMgr::LogPlayerLocation()
 
                     sPlayerbotAIConfig.log("player_location.csv", out.str().c_str());
 
-                    if (sPlayerbotAIConfig.hasLog("bot_heartbeat.csv"))
+                    PlayerbotAI* heartbeatAi = bot->GetPlayerbotAI();
+                    if (sPlayerbotAIConfig.hasLog("bot_heartbeat.csv") && heartbeatAi && heartbeatAi->HasStrategy("debug heartbeat", BotState::BOT_STATE_NON_COMBAT))
                     {
                         std::ostringstream hb;
                         hb << sPlayerbotAIConfig.GetTimestampStr() << "+00,";
@@ -660,8 +661,8 @@ void RandomPlayerbotMgr::LogPlayerLocation()
 void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
 {
 #ifdef MEMORY_MONITOR
-    sMemoryMonitor.Print();
     sMemoryMonitor.LogCount(sConfig.GetStringDefault("LogsDir") + "/" + "memory.csv");
+    sMemoryMonitor.SampleDiagnostics();
 #endif
 
     if (!sPlayerbotAIConfig.randomBotAutologin || !sPlayerbotAIConfig.enabled)
@@ -894,6 +895,18 @@ void RandomPlayerbotMgr::ScaleBotActivity()
     }
 }
 
+bool RandomPlayerbotMgr::BumpDeferredJoinTries(uint32 botGuid)
+{
+    uint32 tries = GetValue(botGuid, "create group tries") + 1;
+    SetValue(botGuid, "create group tries", tries);
+
+    if (tries < 300)
+        return false;
+
+    SetValue(botGuid, "create group tries", 0);
+    return true;
+}
+
 void RandomPlayerbotMgr::LoginFreeBots()
 {
     if (!sPlayerbotAIConfig.freeAltBots.empty() && sPlayerbotAIConfig.botAutologin != BotAutoLogin::LOGIN_ONLY_ALWAYS_ACTIVE)
@@ -932,11 +945,33 @@ void RandomPlayerbotMgr::LoginFreeBots()
 
                         if (master)
                         {
-                            bot->GetPlayerbotAI()->DoSpecificAction("join", Event("create group", "", master));
+                            Group* masterGroup = master->GetGroup();
+                            bool joined = masterGroup && bot->GetGroup() == masterGroup;
+
+                            if (!joined)
+                                joined = bot->GetPlayerbotAI()->DoSpecificAction("join", Event("create group", "", master));
+
+                            if (joined)
+                            {
+                                if (master->GetPlayerbotAI() && master->GetPlayerbotAI()->HasStrategy("debug heartbeat", BotState::BOT_STATE_NON_COMBAT))
+                                    bot->GetPlayerbotAI()->ChangeStrategy("+debug heartbeat,+debug reactions", BotState::BOT_STATE_NON_COMBAT);
+                                sRandomPlayerbotMgr.SetValue(botGuid, "create group tries", 0);
+                                sRandomPlayerbotMgr.SetValue(botGuid, "create group", 0);
+                            }
+                            else if (sRandomPlayerbotMgr.BumpDeferredJoinTries(botGuid))
+                            {
+                                sRandomPlayerbotMgr.SetValue(botGuid, "create group", 0);
+                            }
+                        }
+                        else if (sRandomPlayerbotMgr.BumpDeferredJoinTries(botGuid))
+                        {
+                            sRandomPlayerbotMgr.SetValue(botGuid, "create group", 0);
                         }
                     }
-
-                    sRandomPlayerbotMgr.SetValue(botGuid, "create group", 0);
+                    else
+                    {
+                        sRandomPlayerbotMgr.SetValue(botGuid, "create group", 0);
+                    }
                 }
 
                 if (sRandomPlayerbotMgr.GetValue(botGuid, "create gear"))
@@ -1036,7 +1071,7 @@ void RandomPlayerbotMgr::LoginFreeBots()
                 }
 
                 BotAlwaysOnline always = BotAlwaysOnline(sRandomPlayerbotMgr.GetValue(botGuid, "always"));
-                if (always != BotAlwaysOnline::ACTIVE)
+                if (always != BotAlwaysOnline::ACTIVE && !sRandomPlayerbotMgr.GetValue(botGuid, "create group"))
                 {
                     botsToRemove.push_back({accountId, botGuid});
                 }
@@ -2440,7 +2475,7 @@ void RandomPlayerbotMgr::Revive(Player* player)
     }
 }
 
-void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> &locs, bool hearth, bool activeOnly)
+void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>& locs, bool hearth, bool activeOnly)
 {
     if (bot->IsBeingTeleported())
         return;
@@ -2451,8 +2486,8 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> 
     if (bot->InBattleGroundQueue())
         return;
 
-	if (bot->GetLevel() < 5)
-		return;
+    if (bot->GetLevel() < 5)
+        return;
 
     if (bot->GetGroup() && !bot->GetGroup()->IsLeader(bot->GetObjectGuid()))
         return;
@@ -2467,184 +2502,41 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> 
     }
 
     std::vector<WorldPosition> tlocs;
+    tlocs.reserve(locs.size());
 
     for (auto& loc : locs)
-    {
         tlocs.push_back(WorldPosition(loc));
-    }
 
-    //Do not teleport to maps disabled in config
-    tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [](const WorldPosition& l) {std::vector<uint32>::iterator i = find(sPlayerbotAIConfig.randomBotMaps.begin(), sPlayerbotAIConfig.randomBotMaps.end(), l.getMapId()); return i == sPlayerbotAIConfig.randomBotMaps.end(); }), tlocs.end());
+    // Do not teleport to maps disabled in config.
+    tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [](const WorldPosition& l)
+    {
+        return std::find(sPlayerbotAIConfig.randomBotMaps.begin(), sPlayerbotAIConfig.randomBotMaps.end(), l.getMapId()) == sPlayerbotAIConfig.randomBotMaps.end();
+    }), tlocs.end());
 
-    //Random shuffle based on distance. Closer distances are more likely (but not exclusively) to be at the begin of the list.
+    // Closer points are more likely to end up at the front. This does not touch terrain.
     tlocs = WorldPosition(bot).GetNextPoint(tlocs, 0);
 
-    //5% + 0.1% per level chance node on different map in selection.
-    //tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [bot](WorldLocation const& l) {return l.mapid != bot->GetMapId() && urand(1, 100) > 0.5 * bot->GetLevel(); }), tlocs.end());
-
-    //Continent is about 20.000 large
-    //Bot will travel 0-5000 units + 75-150 units per level.
-    //tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [bot](WorldLocation const& l) {return l.mapid == bot->GetMapId() && sServerFacade.GetDistance2d(bot, l.coord_x, l.coord_y) > urand(0, 5000) + bot->GetLevel() * 15 * urand(5, 10); }), tlocs.end());
-
-    // teleport to active areas only
+    // Active-only used to call GetZoneId on every candidate, which loads map and mmap tiles.
+    // Keep only points on a continent that is already created and has an active zone.
+    // The specific zone is checked once, on the candidate actually teleported to.
     if (sPlayerbotAIConfig.randomBotTeleportNearPlayer && activeOnly)
     {
-        tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [this](const WorldPosition& l)
+        tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [](const WorldPosition& l)
         {
-            uint32 mapId = l.getMapId();
-            Map* tMap = sMapMgr.FindMap(mapId, 0);
-            if (tMap && tMap->IsContinent() && tMap->HasActiveZones())
-            {
-                uint32 zoneId = sTerrainMgr.GetZoneId(mapId, l.coord_x, l.coord_y, l.coord_z);
-                if (tMap->HasActiveZone(zoneId))
-                {
-                    if (sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmount > 0 && sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmountRadius > 0.0f)
-                    {
-                        uint32 botsNearTeleportPoint = 0;
-                        ForEachPlayerbot([&](Player* otherBot)
-                        {
-                            // Only check the bots that are on the same zone. IsInWorld() first:
-                            // GetZoneId() asserts m_currMap, and a bot being teleported has no map.
-                            if (otherBot && otherBot->IsInWorld() && !otherBot->IsBeingTeleported() && zoneId == otherBot->GetZoneId())
-                            {
-                                if (l.fDist(WorldPosition(otherBot)) <= sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmountRadius)
-                                {
-                                    botsNearTeleportPoint++;
-                                }
-                            }
-                        });
-
-                        return botsNearTeleportPoint >= sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmount;
-                    }
-                    else
-                    {
-                        return false;
-                    }
-                }
-            }
-
-            return true;
-        }),
-        tlocs.end());
-
-        /*if (!tlocs.empty())
-        {
-            tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [bot](const WorldPosition& l)
-            {
-                uint32 mapId = l.getMapId();
-                Map* tMap = sMapMgr.FindMap(mapId, 0);
-                if (!tMap || !tMap->IsContinent())
-                        return true;
-
-                if (!tMap->HasActiveAreas())
-                    return true;
-
-                AreaTableEntry const* area = l.getArea();
-                if (area)
-                {
-                    if (!tMap->HasActiveZone(area->zone ? area->zone : area->ID))
-                        return true;
-                }
-            }), tlocs.end());
-        }*/
+            Map* tMap = sMapMgr.FindMap(l.getMapId(), 0);
+            return !tMap || !tMap->IsContinent() || !tMap->HasActiveZones();
+        }), tlocs.end());
     }
-
-    // filter starter zones
-    tlocs.erase(std::remove_if(tlocs.begin(), tlocs.end(), [bot](const WorldPosition& l)
-    {
-        uint32 mapId = l.getMapId();
-        uint32 zoneId, areaId;
-        sTerrainMgr.GetZoneAndAreaId(zoneId, areaId, mapId, l.coord_x, l.coord_y, l.coord_z);
-        AreaTableEntry const* area = GetAreaEntryByAreaID(areaId);
-        if (zoneId && zoneId != areaId)
-        {
-            AreaTableEntry const* zone = GetAreaEntryByAreaID(zoneId);
-            if (!zone)
-                return true;
-
-            bool isEnemyZone = false;
-            switch (zone->team)
-            {
-            case AREATEAM_ALLY:
-                isEnemyZone = bot->GetTeam() != ALLIANCE;
-                break;
-            case AREATEAM_HORDE:
-                isEnemyZone = bot->GetTeam() != HORDE;
-                break;
-            default:
-                isEnemyZone = false;
-                break;
-            }
-            if (isEnemyZone && (bot->GetLevel() < 21 || (zone->flags & AREA_FLAG_CAPITAL)))
-                return true;
-
-            // filter other races zones
-            if (bot->GetLevel() < 30)
-            {
-                if ((zoneId == 12 || zoneId == 40) && bot->getRace() != RACE_HUMAN)
-                    return true;
-                if ((zoneId == 1 || zoneId == 38) && bot->getRace() != RACE_DWARF)
-                    return true;
-                if ((zoneId == 85 || zoneId == 130) && bot->getRace() != RACE_UNDEAD)
-                    return true;
-                if ((zoneId == 141 || zoneId == 148) && bot->getRace() != RACE_NIGHTELF)
-                    return true;
-                if ((zoneId == 14 || zoneId == 17) && !(bot->getRace() == RACE_ORC || bot->getRace() == RACE_TROLL))
-                    return true;
-                if ((zoneId == 215) && bot->getRace() != RACE_TAUREN)
-                    return true;
-                // redridge / duskwood
-                if ((zoneId == 44 || zoneId == 10) && bot->GetTeam() != ALLIANCE)
-                    return true;
-#ifndef MANGOSBOT_ZERO
-                if ((zoneId == 3524 || zoneId == 3525) && bot->getRace() != RACE_DRAENEI)
-                    return true;
-                if ((zoneId == 3430 || zoneId == 3433) && bot->getRace() != RACE_BLOODELF)
-                    return true;
-#endif
-            }
-        }
-
-        if (!area)
-            return true;
-
-        bool isEnemyZone = false;
-        switch (area->team)
-        {
-        case AREATEAM_ALLY:
-            isEnemyZone = bot->GetTeam() != ALLIANCE;
-            break;
-        case AREATEAM_HORDE:
-            isEnemyZone = bot->GetTeam() != HORDE;
-            break;
-        default:
-            isEnemyZone = false;
-            break;
-        }
-        return isEnemyZone && bot->GetLevel() < 21;
-
-    }), tlocs.end());
 
     if (tlocs.empty())
     {
-        if (activeOnly)
-        {
-            if (hearth)
-                return RandomTeleportForRpg(bot, false);
-            else
-                return RandomTeleportForLevel(bot, false);
-        }
-
         sLog.outError("Cannot teleport bot %s - no locations available", bot->GetName());
-
         return;
     }
 
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "RandomTeleportByLocations");
 
-    int index = 0;
-
-    for (int i = 0; i < tlocs.size(); i++)
+    for (size_t i = 0; i < tlocs.size(); ++i)
     {
         for (int attemtps = 0; attemtps < 3; ++attemtps)
         {
@@ -2669,9 +2561,99 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation> 
             if (!map)
                 continue;
 
-            uint32 areaId = sTerrainMgr.GetAreaId(loc.mapid, x, y, z);
+            // One area lookup per attempt, and only after the map already exists.
+            // GetZoneAndAreaId on the whole candidate list was the mmap dtAlloc path.
+            uint32 zoneId = 0;
+            uint32 areaId = 0;
+            sTerrainMgr.GetZoneAndAreaId(zoneId, areaId, loc.mapid, x, y, z);
             AreaTableEntry const* area = GetAreaEntryByAreaID(areaId);
             if (!area)
+                continue;
+
+            if (activeOnly && sPlayerbotAIConfig.randomBotTeleportNearPlayer)
+            {
+                uint32 activeZoneId = zoneId ? zoneId : areaId;
+                if (!map->HasActiveZone(activeZoneId))
+                    continue;
+
+                if (sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmount > 0 && sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmountRadius > 0.0f)
+                {
+                    uint32 botsNearTeleportPoint = 0;
+                    WorldPosition dest(loc.mapid, x, y, z, 0.0f);
+                    ForEachPlayerbot([&](Player* otherBot)
+                    {
+                        if (otherBot && otherBot->IsInWorld() && !otherBot->IsBeingTeleported() && activeZoneId == otherBot->GetZoneId())
+                        {
+                            if (dest.fDist(WorldPosition(otherBot)) <= sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmountRadius)
+                                botsNearTeleportPoint++;
+                        }
+                    });
+
+                    if (botsNearTeleportPoint >= sPlayerbotAIConfig.randomBotTeleportNearPlayerMaxAmount)
+                        continue;
+                }
+            }
+
+            // Starter-zone and enemy-faction checks used to run on every stored location.
+            if (zoneId && zoneId != areaId)
+            {
+                AreaTableEntry const* zone = GetAreaEntryByAreaID(zoneId);
+                if (!zone)
+                    continue;
+
+                bool isEnemyZone = false;
+                switch (zone->team)
+                {
+                case AREATEAM_ALLY:
+                    isEnemyZone = bot->GetTeam() != ALLIANCE;
+                    break;
+                case AREATEAM_HORDE:
+                    isEnemyZone = bot->GetTeam() != HORDE;
+                    break;
+                default:
+                    break;
+                }
+                if (isEnemyZone && (bot->GetLevel() < 21 || (zone->flags & AREA_FLAG_CAPITAL)))
+                    continue;
+
+                if (bot->GetLevel() < 30)
+                {
+                    if ((zoneId == 12 || zoneId == 40) && bot->getRace() != RACE_HUMAN)
+                        continue;
+                    if ((zoneId == 1 || zoneId == 38) && bot->getRace() != RACE_DWARF)
+                        continue;
+                    if ((zoneId == 85 || zoneId == 130) && bot->getRace() != RACE_UNDEAD)
+                        continue;
+                    if ((zoneId == 141 || zoneId == 148) && bot->getRace() != RACE_NIGHTELF)
+                        continue;
+                    if ((zoneId == 14 || zoneId == 17) && !(bot->getRace() == RACE_ORC || bot->getRace() == RACE_TROLL))
+                        continue;
+                    if (zoneId == 215 && bot->getRace() != RACE_TAUREN)
+                        continue;
+                    if ((zoneId == 44 || zoneId == 10) && bot->GetTeam() != ALLIANCE)
+                        continue;
+#ifndef MANGOSBOT_ZERO
+                    if ((zoneId == 3524 || zoneId == 3525) && bot->getRace() != RACE_DRAENEI)
+                        continue;
+                    if ((zoneId == 3430 || zoneId == 3433) && bot->getRace() != RACE_BLOODELF)
+                        continue;
+#endif
+                }
+            }
+
+            bool isEnemyArea = false;
+            switch (area->team)
+            {
+            case AREATEAM_ALLY:
+                isEnemyArea = bot->GetTeam() != ALLIANCE;
+                break;
+            case AREATEAM_HORDE:
+                isEnemyArea = bot->GetTeam() != HORDE;
+                break;
+            default:
+                break;
+            }
+            if (isEnemyArea && bot->GetLevel() < 21)
                 continue;
 
 #ifndef MANGOSBOT_ZERO

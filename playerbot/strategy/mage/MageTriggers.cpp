@@ -2,32 +2,53 @@
 #include "playerbot/playerbot.h"
 #include "MageTriggers.h"
 #include "MageActions.h"
+#include "MageAoe.h"
+#include <set>
 
 using namespace ai;
 
+namespace
+{
+    Unit* FindMeleeAoeTarget(PlayerbotAI* ai, bool levelingOnly = false)
+    {
+        Player* bot = ai->GetBot();
+        std::set<ObjectGuid> nearby;
+        Unit* spellTarget = nullptr;
+        const std::list<ObjectGuid> targets = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get();
+        for (const ObjectGuid& guid : targets)
+        {
+            Unit* target = ai->GetUnit(guid);
+            if (target && !target->IsPlayer() && target->IsAlive() &&
+                bot->IsWithinDistInMap(target, ATTACK_DISTANCE))
+            {
+                if (!spellTarget)
+                    spellTarget = target;
+
+                nearby.insert(guid);
+                if (levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), nearby.size()) : HasMageAoeTargetCount(nearby.size()))
+                    return spellTarget;
+            }
+        }
+
+        return nullptr;
+    }
+}
+
 Unit* LevelingArcaneExplosionTrigger::GetTarget()
 {
-    if (bot->getClass() != CLASS_MAGE || bot->GetLevel() >= 60)
-        return nullptr;
+    return bot->getClass() == CLASS_MAGE && bot->GetLevel() < 60 ? FindMeleeAoeTarget(ai, true) : nullptr;
+}
 
-    uint32 nearbyCreatures = 0;
-    Unit* spellTarget = nullptr;
-    const std::list<ObjectGuid> targets = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
-    for (const ObjectGuid& guid : targets)
-    {
-        Unit* target = ai->GetUnit(guid);
-        if (target && !target->IsPlayer() && target->IsAlive() &&
-            bot->IsWithinDistInMap(target, ATTACK_DISTANCE))
-        {
-            if (!spellTarget)
-                spellTarget = target;
+bool MageGroundAoeTrigger::IsActive()
+{
+    MageAoeTarget target;
+    return FindMageAoeTarget(ai, AI_VALUE2(uint32, "spell id", spell), target, spell == "flamestrike");
+}
 
-            if (++nearbyCreatures > 3)
-                return spellTarget;
-        }
-    }
-
-    return nullptr;
+bool MageArcaneExplosionAoeTrigger::IsActive()
+{
+    Trigger* tooClose = context->GetTrigger("enemy too close for spell");
+    return FindMeleeAoeTarget(ai) && tooClose && tooClose->IsActive();
 }
 
 bool AnyMageArmorTrigger::IsActive()

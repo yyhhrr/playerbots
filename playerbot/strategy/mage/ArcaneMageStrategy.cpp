@@ -135,12 +135,16 @@ void ArcaneMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
     MageAoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy too close for spell",
+        "mage arcane explosion aoe",
         NextAction::array(0, new NextAction("arcane explosion", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "ranged high aoe",
-        NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 2), new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
+        "mage flamestrike aoe",
+        NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "mage blizzard aoe",
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
 }
 
 void ArcaneMageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -489,12 +493,16 @@ void ArcaneMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
     MageAoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy too close for spell",
+        "mage arcane explosion aoe",
         NextAction::array(0, new NextAction("arcane explosion", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "ranged high aoe",
-        NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 2), new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
+        "mage flamestrike aoe",
+        NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "mage blizzard aoe",
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
 }
 
 void ArcaneMageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -851,7 +859,7 @@ void ArcaneMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
     MageAoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy too close for spell",
+        "mage arcane explosion aoe",
         NextAction::array(0, new NextAction("arcane explosion", ACTION_HIGH), NULL)));
 }
 

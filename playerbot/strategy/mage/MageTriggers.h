@@ -26,6 +26,24 @@ namespace ai
         Unit* GetTarget() override;
     };
 
+    class MageGroundAoeTrigger : public Trigger
+    {
+    public:
+        MageGroundAoeTrigger(PlayerbotAI* ai, const std::string& spell) :
+            Trigger(ai, "mage " + spell + " aoe"), spell(spell) {}
+        bool IsActive() override;
+
+    private:
+        std::string spell;
+    };
+
+    class MageArcaneExplosionAoeTrigger : public Trigger
+    {
+    public:
+        MageArcaneExplosionAoeTrigger(PlayerbotAI* ai) : Trigger(ai, "mage arcane explosion aoe") {}
+        bool IsActive() override;
+    };
+
     class ArcaneIntellectOnPartyTrigger : public BuffOnPartyTrigger
     {
     public:

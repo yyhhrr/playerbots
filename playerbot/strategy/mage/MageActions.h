@@ -6,6 +6,8 @@
 
 namespace ai
 {
+    struct MageAoeTarget;
+
     BUFF_ACTION(CastFireWardAction, "fire ward");
     BUFF_ACTION(CastFrostWardAction, "frost ward");
     BUFF_ACTION(CastBlinkAction, "blink");
@@ -60,10 +62,30 @@ namespace ai
         CastPyroblastAction(PlayerbotAI* ai) : CastSpellAction(ai, "pyroblast") {}
     };
 
-    class CastFlamestrikeAction : public CastSpellAction
+    class CastMageGroundAoeAction : public CastSpellAction
     {
     public:
-        CastFlamestrikeAction(PlayerbotAI* ai) : CastSpellAction(ai, "flamestrike") {}
+        CastMageGroundAoeAction(PlayerbotAI* ai, const std::string& spell, bool avoidExistingFlamestrike = false)
+            : CastSpellAction(ai, spell), avoidExistingFlamestrike(avoidExistingFlamestrike) {}
+
+        bool Execute(Event& event) override;
+        bool isPossible() override;
+        bool isUseful() override;
+
+    protected:
+        Unit* GetTarget() override;
+        std::string GetReachActionName() override { return ""; }
+        virtual bool IsAoeReady(const MageAoeTarget& target) { return true; }
+        bool SelectAoeTarget(MageAoeTarget& target);
+
+    private:
+        bool avoidExistingFlamestrike;
+    };
+
+    class CastFlamestrikeAction : public CastMageGroundAoeAction
+    {
+    public:
+        CastFlamestrikeAction(PlayerbotAI* ai) : CastMageGroundAoeAction(ai, "flamestrike", true) {}
     };
 
     class CastFrostNovaAction : public CastMeleeAoeSpellAction
@@ -78,13 +100,15 @@ namespace ai
 		CastFrostboltAction(PlayerbotAI* ai) : CastSpellAction(ai, "frostbolt") {}
 	};
 
-	class CastBlizzardAction : public CastSpellAction
-	{
-	public:
-		CastBlizzardAction(PlayerbotAI* ai) : CastSpellAction(ai, "blizzard") {}
+    class CastBlizzardAction : public CastMageGroundAoeAction
+    {
+    public:
+        CastBlizzardAction(PlayerbotAI* ai) : CastMageGroundAoeAction(ai, "blizzard") {}
         virtual ActionThreatType getThreatType() { return ActionThreatType::ACTION_THREAT_AOE; }
-        virtual bool isUseful() override { return CastSpellAction::isUseful() && ai->GetCombatStartTime() && (time(0) - ai->GetCombatStartTime()) > 10; }
-	};
+
+    protected:
+        bool IsAoeReady(const MageAoeTarget& target) override;
+    };
 
 	class CastArcaneIntellectAction : public CastBuffSpellAction
     {

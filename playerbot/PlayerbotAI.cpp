@@ -13,6 +13,7 @@
 #include "strategy/actions/LogLevelAction.h"
 #include "strategy/actions/SayAction.h"
 #include "strategy/actions/EmoteAction.h"
+#include "strategy/actions/NeedRollCommand.h"
 #include "strategy/values/LastSpellCastValue.h"
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -1669,6 +1670,24 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
         for (std::vector<std::string>::iterator i = commands.begin(); i != commands.end(); ++i)
         {
             HandleCommand(type, *i, fromPlayer);
+        }
+        return;
+    }
+
+    need_roll::ItemLink needRollItem;
+    if (need_roll::ParseCommand(filtered, needRollItem))
+    {
+        bool groupChat = type == CHAT_MSG_PARTY || type == CHAT_MSG_RAID ||
+            type == CHAT_MSG_RAID_LEADER || type == CHAT_MSG_RAID_WARNING;
+#ifdef MANGOSBOT_TWO
+        groupChat = groupChat || type == CHAT_MSG_PARTY_LEADER;
+#endif
+        if (groupChat && bot != &fromPlayer && bot->GetGroup() &&
+            bot->GetGroup() == fromPlayer.GetGroup() &&
+            (!fromPlayer.GetPlayerbotAI() || fromPlayer.GetPlayerbotAI()->IsRealPlayer()))
+        {
+            // RollMaster announcements do not use the configurable bot command prefix.
+            chatCommands.push(ChatCommandHolder("need roll " + needRollItem.link, &fromPlayer, type));
         }
         return;
     }

@@ -94,7 +94,12 @@ void WorldPacketHandlerStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &
 
     triggers.push_back(new TriggerNode(
         "item push result",
-        NextAction::array(0, new NextAction("query item usage", relevance), new NextAction("equip upgrades", relevance), NULL)));
+        NextAction::array(0, new NextAction("auto quest item exchange", relevance + 2), new NextAction("query item usage", relevance), new NextAction("equip upgrades", relevance), NULL)));
+
+    // Trades/mail and temporarily full bags may not produce a usable item-push event.
+    triggers.push_back(new TriggerNode(
+        "very often",
+        NextAction::array(0, new NextAction("auto quest item exchange", relevance), NULL)));
 
     triggers.push_back(new TriggerNode(
         "ready check finished",

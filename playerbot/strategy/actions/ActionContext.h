@@ -6,6 +6,7 @@
 #include "LootAction.h"
 #include "AddLootAction.h"
 #include "LootRollAction.h"
+#include "AutoQuestItemExchangeAction.h"
 #include "StayActions.h"
 #include "FollowActions.h"
 #include "ChangeStrategyAction.h"
@@ -138,6 +139,7 @@ namespace ai
             creators["add all loot"] = [](PlayerbotAI* ai) { return new AddAllLootAction(ai); };
             creators["release loot"] = [](PlayerbotAI* ai) { return new ReleaseLootAction(ai); };
             creators["auto loot roll"] = [](PlayerbotAI* ai) { return new AutoLootRollAction(ai); };
+            creators["auto quest item exchange"] = [](PlayerbotAI* ai) { return new AutoQuestItemExchangeAction(ai); };
             creators["follow"] = [](PlayerbotAI* ai) { return new FollowAction(ai); };
             creators["stop follow"] = [](PlayerbotAI* ai) { return new StopFollowAction(ai); };
             creators["flee to master"] = [](PlayerbotAI* ai) { return new FleeToMasterAction(ai); };

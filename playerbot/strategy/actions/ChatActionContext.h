@@ -13,6 +13,7 @@
 #include "AddLootAction.h"
 #include "LootRollAction.h"
 #include "NeedRollAction.h"
+#include "ManualQuestItemExchangeAction.h"
 #include "ReleaseSpiritAction.h"
 #include "TeleportAction.h"
 #include "TaxiAction.h"
@@ -111,6 +112,7 @@ namespace ai
             creators["add all loot"] = [](PlayerbotAI* ai) { return new AddAllLootAction(ai); };
             creators["roll"] = [](PlayerbotAI* ai) { return new RollAction(ai); };
             creators["need roll"] = [](PlayerbotAI* ai) { return new NeedRollAction(ai); };
+            creators["quest item exchange"] = [](PlayerbotAI* ai) { return new ManualQuestItemExchangeAction(ai); };
             creators["release"] = [](PlayerbotAI* ai) { return new ReleaseSpiritAction(ai); };
             creators["repop"] = [](PlayerbotAI* ai) { return new RepopAction(ai); };
             creators["teleport"] = [](PlayerbotAI* ai) { return new TeleportAction(ai); };

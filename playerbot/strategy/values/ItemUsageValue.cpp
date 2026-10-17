@@ -8,6 +8,7 @@
 
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/QuestItemExchange.h"
 
 using namespace ai;
 
@@ -113,6 +114,12 @@ ItemUsage ItemUsageValue::Calculate()
     }
 
     if (forceUsage == ForceItemUsage::FORCE_USAGE_BAG)
+        return ItemUsage::ITEM_USAGE_KEEP;
+
+    QuestItemExchangePlan exchange;
+    if (sPlayerbotAIConfig.autoQuestItemExchange && QuestItemExchange::FindBestPlan(ai, itemId, true, exchange))
+        return ItemUsage::ITEM_USAGE_FORCE_NEED;
+    if (sPlayerbotAIConfig.autoQuestItemExchange && QuestItemExchange::ShouldKeepKey(ai, itemId))
         return ItemUsage::ITEM_USAGE_KEEP;
 
     if (bot->GetGuildId())
@@ -305,6 +312,11 @@ ItemUsage ItemUsageValue::Calculate()
     ItemUsage equip = QueryItemUsageForEquip(itemQualifier, bot);
     if (equip != ItemUsage::ITEM_USAGE_NONE)
         return equip;
+
+    // Wear old equipment normally first; retain useful manual-exchange inputs
+    // instead of selling or disenchanting them while other keys are missing.
+    if (QuestItemExchange::ShouldKeepForManualExchange(ai, itemId))
+        return ItemUsage::ITEM_USAGE_KEEP;
 
 #ifdef MANGOSBOT_TWO
     if (proto->Class == ITEM_CLASS_GLYPH)

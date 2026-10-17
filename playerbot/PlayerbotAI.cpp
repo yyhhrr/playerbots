@@ -14,6 +14,7 @@
 #include "strategy/actions/SayAction.h"
 #include "strategy/actions/EmoteAction.h"
 #include "strategy/actions/NeedRollCommand.h"
+#include "strategy/actions/QuestItemExchangeCommand.h"
 #include "strategy/values/LastSpellCastValue.h"
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -1723,6 +1724,17 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
     if (filtered.empty())
         return;
 
+    need_roll::ItemLink exchangeItem;
+    const bool manualQuestItemExchange = quest_exchange_command::ParseCommand(filtered, exchangeItem);
+    if (manualQuestItemExchange)
+    {
+        if (fromPlayer.GetPlayerbotAI() && !fromPlayer.GetPlayerbotAI()->IsRealPlayer())
+            return;
+
+        // Keep inventory-changing requests behind the normal prefix, filters and security check.
+        filtered = "quest item exchange " + exchangeItem.link;
+    }
+
     if (filtered.substr(0, 6) == "debug ")
     {
         std::string response = HandleRemoteCommand(filtered.substr(6));
@@ -1736,7 +1748,7 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
 
-    if (type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos && filtered.find("award") == std::string::npos)
+    if (!manualQuestItemExchange && type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos && filtered.find("award") == std::string::npos)
     {
         ChatCommandHolder cmd("warning", &fromPlayer, type);
         chatCommands.push(cmd);

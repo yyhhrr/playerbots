@@ -330,6 +330,8 @@ public:
 
     std::string autoPickReward;
     bool autoEquipUpgradeLoot;
+    bool autoQuestItemExchange;
+    std::vector<uint32> questItemExchangeKeys;
     bool autoEnchantUpgradeLoot;
     bool syncQuestWithPlayer;
     bool syncQuestForPlayer;

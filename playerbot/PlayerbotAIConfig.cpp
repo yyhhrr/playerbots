@@ -630,6 +630,8 @@ bool PlayerbotAIConfig::Initialize()
     //SPP automation
     autoPickReward = config.GetStringDefault("AiPlayerbot.AutoPickReward", "no");
     autoEquipUpgradeLoot = config.GetBoolDefault("AiPlayerbot.AutoEquipUpgradeLoot", false);
+    autoQuestItemExchange = config.GetBoolDefault("AiPlayerbot.AutoQuestItemExchange", true);
+    LoadList<std::vector<uint32> >(config.GetStringDefault("AiPlayerbot.QuestItemExchangeKeys", ""), questItemExchangeKeys);
     autoEnchantUpgradeLoot = config.GetBoolDefault("AiPlayerbot.AutoEnchantUpgradeLoot", false);
     syncQuestWithPlayer = config.GetBoolDefault("AiPlayerbot.SyncQuestWithPlayer", false);
     syncQuestForPlayer = config.GetBoolDefault("AiPlayerbot.SyncQuestForPlayer", false);

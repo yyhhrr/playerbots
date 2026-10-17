@@ -2,6 +2,7 @@
 #include "NeedRollAction.h"
 #include "NeedRollCommand.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
+#include "playerbot/QuestItemExchange.h"
 
 #include <stdexcept>
 
@@ -58,6 +59,12 @@ bool NeedRollAction::Execute(Event& event)
 
 bool NeedRollAction::NeedsQuestReward(ItemQualifier& itemQualifier)
 {
+    if (sPlayerbotAIConfig.autoQuestItemExchange)
+    {
+        QuestItemExchangePlan exchange;
+        return QuestItemExchange::FindBestPlan(ai, itemQualifier.GetId(), true, exchange);
+    }
+
     const ItemPrototype* proto = itemQualifier.GetProto();
     if (!proto || proto->InventoryType != INVTYPE_NON_EQUIP || bot->CanUseItem(proto) != EQUIP_ERR_OK)
         return false;

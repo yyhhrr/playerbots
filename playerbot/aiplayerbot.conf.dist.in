@@ -363,6 +363,14 @@ AiPlayerbot.AutoPickReward = yes
 # Default: 0 (disabled)
 AiPlayerbot.AutoEquipUpgradeLoot = 1
 
+# Bots automatically redeem dedicated quest tokens without quests, reputation or auxiliary materials.
+# Only suitable upgrades are created; actual key quantities are consumed. Restart to reload recipes.
+# Wearable equipment (including T0) is never consumed automatically.
+# Use exchange item <item link> to explicitly redeem old equipment; the Chinese exchange command also works.
+AiPlayerbot.AutoQuestItemExchange = 1
+# Additional recognized key item IDs; wearable inputs still always require a manual command.
+# AiPlayerbot.QuestItemExchangeKeys =
+
 # Bots enchant upgrades automatically
 # Default: 0 (disabled)
 AiPlayerbot.AutoEnchantUpgradeLoot = 0

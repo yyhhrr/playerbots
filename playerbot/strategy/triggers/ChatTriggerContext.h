@@ -20,6 +20,7 @@ namespace ai
             creators["drop"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "drop"); };
             creators["roll"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "roll"); };
             creators["need roll"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "need roll"); };
+            creators["quest item exchange"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "quest item exchange"); };
             creators["share"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "share"); };
             creators["q"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "q"); };
             creators["ll"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "ll"); };

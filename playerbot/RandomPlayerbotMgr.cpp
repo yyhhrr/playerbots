@@ -56,6 +56,37 @@
 using namespace ai;
 using namespace MaNGOS;
 
+namespace
+{
+    // Some CMaNGOS revisions do not expose model/map census accessors yet.
+    // Keep the optional diagnostics available without reporting a false zero.
+    template<class Manager>
+    std::string LoadedModelCount(Manager* manager)
+    {
+        if (!manager)
+            return "0";
+
+        if constexpr (requires { manager->getLoadedModelsCount(); })
+            return std::to_string(manager->getLoadedModelsCount());
+        else if constexpr (requires { manager->GetLoadedModelCount(); })
+            return std::to_string(manager->GetLoadedModelCount());
+        else
+            return "n/a";
+    }
+
+    template<class Manager>
+    std::string LoadedVmapCount(Manager* manager)
+    {
+        if (!manager)
+            return "0";
+
+        if constexpr (requires { manager->GetLoadedMapCount(); })
+            return std::to_string(manager->GetLoadedMapCount());
+        else
+            return "n/a";
+    }
+}
+
 INSTANTIATE_SINGLETON_1(RandomPlayerbotMgr);
 
 #ifdef CMANGOS
@@ -5365,9 +5396,9 @@ std::list<std::string> RandomPlayerbotMgr::HandleConsoleMem(std::string param)
     out.str("");
     out << "mem engine: mmapMaps=" << (mmapManager ? mmapManager->getLoadedMapsCount() : 0)
         << " mmapTiles=" << (mmapManager ? mmapManager->getLoadedTilesCount() : 0)
-        << " mmapModels=" << (mmapManager ? mmapManager->getLoadedModelsCount() : 0)
-        << " vmapMaps=" << (vmapManager ? vmapManager->GetLoadedMapCount() : 0)
-        << " vmapModels=" << (vmapManager ? vmapManager->GetLoadedModelCount() : 0)
+        << " mmapModels=" << LoadedModelCount(mmapManager)
+        << " vmapMaps=" << LoadedVmapCount(vmapManager)
+        << " vmapModels=" << LoadedModelCount(vmapManager)
         << " vmapTiles=" << vmapTiles;
     messages.push_back(out.str());
 

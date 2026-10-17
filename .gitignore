@@ -64,6 +64,7 @@ Thumbs.db
 _build
 build
 /dep/libmpq/autom4te.cache/
+tests
 
 # Generated files
 *.ncb

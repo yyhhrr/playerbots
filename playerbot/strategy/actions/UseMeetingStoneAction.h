@@ -14,8 +14,10 @@ namespace ai
 
     protected:
         bool Teleport(Player* requester, Player *summoner, Player *player);
-        bool SummonUsingGos(Player* requester, Player *summoner, Player *player);
-        bool SummonUsingNpcs(Player* requester, Player *summoner, Player *player);
+
+    private:
+        static void QueueDirectSummon(ObjectGuid botGuid, ObjectGuid requesterGuid, uint32 attempts = 0);
+        bool DirectSummon(Player* requester);
     };
 
     class UseMeetingStoneAction : public SummonAction

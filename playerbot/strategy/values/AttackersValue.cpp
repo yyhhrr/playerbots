@@ -342,6 +342,11 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
         return false;
     }
 
+    // Apply the flag boundary before separating player and NPC branches, so hostile
+    // pets/guardians cannot keep a defender chasing after their distant owner.
+    if (!EnemyPlayersValue::IsAllowedArathiDefenderTarget(target, playerToCheckAgainst))
+        return false;
+
     // This will be used on both enemy player and npc checks
     const bool inPvPProhibitedZone = sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(target));
 

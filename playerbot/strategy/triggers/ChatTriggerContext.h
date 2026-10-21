@@ -105,6 +105,7 @@ namespace ai
             creators["warning"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "warning"); };
             creators["position"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "position"); };
             creators["summon"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "summon"); };
+            creators["\xE8\xBF\x87\xE6\x9D\xA5"] = creators["summon"]; // 过来
             creators["who"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "who"); };
             creators["where"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "where"); };
             creators["save mana"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "save mana"); };

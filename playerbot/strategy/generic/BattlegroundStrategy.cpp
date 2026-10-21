@@ -134,6 +134,9 @@ void ArathiStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 void ArathiStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     InitNonCombatTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "bg active",
+        NextAction::array(0, new NextAction("bg defend objective", 85.0f), NULL)));
 }
 
 void EyeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

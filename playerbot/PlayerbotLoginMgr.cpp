@@ -271,6 +271,8 @@ bool PlayerLoginInfo::IsQueued() const
 
 LoginCriterionFailType PlayerLoginInfo::MatchNoCriteria(const LoginSpace& space, const LoginCriteria& criteria) const
 {
+    if (sRandomPlayerbotMgr.IsGuildLoginProtected(guid))
+        return LoginCriterionFailType::LOGIN_OK;
     for (auto& [criterionfail, criterion] : criteria)
         if (criterion(*this, space))
             return criterionfail;
@@ -296,11 +298,20 @@ bool PlayerLoginInfo::LoginBot()
     if (holderState != HolderState::HOLDER_RECEIVED)
         return false;
 
-    if (sObjectMgr.GetPlayer(ObjectGuid(HIGHGUID_PLAYER, guid), false))
+    if (Player* player = sObjectMgr.GetPlayer(ObjectGuid(HIGHGUID_PLAYER, guid), false))
     {
-        loginState = LoginState::BOT_ONLINE;
-        return false;
+        // A direct/manual request may have completed while this holder was loading.
+        delete holder;
+        holder = nullptr;
+        holderState = HolderState::HOLDER_EMPTY;
+        Update(player);
+        return true;
     }
+
+    // AddRandomBot has already submitted a login using the core callback.
+    // Never consume a second holder for the same character while that is pending.
+    if (sRandomPlayerbotMgr.GetValue(guid, "login"))
+        return false;
 
     sRandomPlayerbotMgr.HandlePlayerBotLoginCallback(nullptr, holder);
     holder = nullptr;
@@ -328,6 +339,13 @@ bool PlayerLoginInfo::LogoutBot()
 {
     if (loginState != LoginState::BOT_ON_LOGOUTQUEUE)
         return false;
+
+    // A queue may have been computed before the guild command was issued.
+    if (sRandomPlayerbotMgr.IsGuildLoginProtected(guid))
+    {
+        ResetLoginState();
+        return false;
+    }
 
     Player* player = sObjectMgr.GetPlayer(ObjectGuid(HIGHGUID_PLAYER, guid), false);
 
@@ -706,7 +724,8 @@ void PlayerBotLoginMgr::LoginLogoutBots(const BotInfos& queue)
     {        
         if (info->LoginBot())
         {
-            onlineBots.push_back(info);
+            if (std::find(onlineBots.begin(), onlineBots.end(), info) == onlineBots.end())
+                onlineBots.push_back(info);
         }
         if (info->LogoutBot())
         {

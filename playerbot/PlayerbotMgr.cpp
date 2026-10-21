@@ -33,6 +33,9 @@ PlayerbotHolder::PlayerbotHolder() : PlayerbotAIBase()
     m_holderHandlers["spoof"] = &PlayerbotHolder::HandleSpoof;
     m_holderHandlers["p"] = &PlayerbotHolder::HandleParty;
     m_holderHandlers["g"] = &PlayerbotHolder::HandleGuild;
+    m_holderHandlers["guildlogin"] = &PlayerbotHolder::HandleGuildLogin;
+    m_holderHandlers[ai::guild_bot_login::ChineseCommand] = &PlayerbotHolder::HandleGuildLogin;
+    m_holderHandlers[ai::guild_bot_login::ChineseAlias] = &PlayerbotHolder::HandleGuildLogin;
     m_holderHandlers["r"] = &PlayerbotHolder::HandleRaid;
     m_holderHandlers["rl"] = &PlayerbotHolder::HandleRaidLeader;
     m_holderHandlers["create"] = &PlayerbotHolder::HandleCreate;
@@ -213,6 +216,7 @@ void PlayerbotMgr::CancelLogout()
 
 void PlayerbotHolder::LogoutPlayerBot(uint32 guid, bool allowInstant, bool forDelete)
 {
+    sRandomPlayerbotMgr.ClearGuildLoginProtection(guid);
     Player* bot = GetPlayerBot(guid);
     if (bot)
     {
@@ -1182,7 +1186,7 @@ std::list<std::string> PlayerbotHolder::HandleHelp(Player* master, const std::st
     
     if (param.empty())
     {
-        messages.push_back("Available commands: list, reload, tweak, always, self, debug, c, do, record, read, clear");
+        messages.push_back("Available commands: list, guildlogin, reload, tweak, always, self, debug, c, do, record, read, clear");
         messages.push_back("Type 'help <command>' for more information on a specific command.");
         return messages;
     }
@@ -1728,6 +1732,13 @@ std::list<std::string> PlayerbotHolder::HandleGuild(Player* master, const std::s
     std::unique_ptr<WorldPacket> packetPtr(new WorldPacket(packet_template));
     master->GetSession()->QueuePacket(std::move(packetPtr));
     return {"Sent guild message \"" + message + "\" as " + master->GetName()};
+}
+
+std::list<std::string> PlayerbotHolder::HandleGuildLogin(Player* master, const std::string param, AccountTypes security)
+{
+    if (param.find_first_not_of(" \t\r\n") != std::string::npos)
+        return {GetCommandTexts("guildlogin")};
+    return sRandomPlayerbotMgr.LoginGuildBots(master);
 }
 
 std::list<std::string> PlayerbotHolder::HandleRaid(Player* master, const std::string param, AccountTypes security)
@@ -2806,7 +2817,7 @@ std::string PlayerbotHolder::HandleBotRandom(Player* bot, Player* master, const 
 std::string PlayerbotHolder::GetCommandTexts(const std::string& command)
 {
     auto texts = GetCommandTexts();
-    auto it = texts.find(command);
+    auto it = texts.find(command == ai::guild_bot_login::ChineseCommand || command == ai::guild_bot_login::ChineseAlias ? "guildlogin" : command);
     if (it != texts.end())
         return it->second;
     return "";
@@ -2818,6 +2829,7 @@ std::unordered_map<std::string, std::string> PlayerbotHolder::GetCommandTexts()
     {
         // Holder commands (used with .(rnd)bot)
         {"list", "List all active player bots.\nUsage: .(rnd)bot list"},
+        {"guildlogin", "Immediately request login for offline random bots in your guild.\nUsage: .bot guildlogin / .bot " + std::string(ai::guild_bot_login::ChineseCommand) + " / .bot " + ai::guild_bot_login::ChineseAlias},
         {"help", "Show help for commands.\nUsage: .(rnd)bot help <command>"},
         {"reload", "Reload the playerbot config (GM only).\nUsage: .(rnd)bot reload"},
         {"tweak", "Adjust the tweak value for testing (GM only).\nUsage: .(rnd)bot tweak"},

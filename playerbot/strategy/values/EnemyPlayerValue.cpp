@@ -2,8 +2,114 @@
 #include "playerbot/playerbot.h"
 #include "EnemyPlayerValue.h"
 #include "TargetValue.h"
+#include "PositionValue.h"
+#include "playerbot/ArathiBasinCombat.h"
+#include "BattleGround/BattleGroundAB.h"
+#include "BattleGround/BattleGroundMgr.h"
 
 using namespace ai;
+
+namespace
+{
+    BattleGround* GetActiveArathiBattleGround(Player* player)
+    {
+        BattleGround* battleground = player ? player->GetBattleGround() : nullptr;
+        if (!battleground || battleground->GetStatus() != STATUS_IN_PROGRESS)
+            return nullptr;
+
+        BattleGroundTypeId type = battleground->GetTypeId();
+#ifdef MANGOSBOT_TWO
+        if (type == BATTLEGROUND_RB)
+            type = battleground->GetTypeId(true);
+#endif
+        return type == BATTLEGROUND_AB ? battleground : nullptr;
+    }
+
+    bool IsDirectlyAttackingDefender(Unit* enemy, Player* defender)
+    {
+        Unit* pet = defender->GetPet();
+        Unit* victim = enemy->GetVictim();
+        if (victim == defender || (pet && victim == pet))
+            return true;
+
+        for (CurrentSpellTypes type : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL, CURRENT_AUTOREPEAT_SPELL })
+        {
+            Spell* spell = enemy->GetCurrentSpell(type);
+            if (!spell || spell->getState() == SPELL_STATE_FINISHED)
+                continue;
+
+            Unit* spellTarget = spell->m_targets.getUnitTarget();
+            if (spellTarget == defender || (pet && spellTarget == pet))
+                return true;
+        }
+
+        return false;
+    }
+
+    bool CanDefenderEngage(Unit* enemy, Player* defender, bool playerControlled)
+    {
+        PlayerbotAI* ai = defender->GetPlayerbotAI();
+        if (!ai || !ai->GetAiObjectContext()->GetValue<bool>("manual bool", "arathi defender")->Get())
+            return true;
+
+        PositionMap& positions = ai->GetAiObjectContext()->GetValue<PositionMap&>("position")->Get();
+        const auto objective = positions.find("bg objective");
+        if (objective == positions.end() || !objective->second.valueSet || objective->second.mapId != defender->GetMapId())
+            return true;
+
+        const PositionEntry& center = objective->second;
+        return IsArathiDefenderTargetAllowed(true, true,
+            sServerFacade.GetDistance2d(enemy, center.x, center.y),
+            sServerFacade.GetDistance2d(defender, enemy), IsDirectlyAttackingDefender(enemy, defender), playerControlled);
+    }
+
+    bool IsCapturingArathiBanner(Unit* enemy, Player* defender, BattleGround* battleground)
+    {
+        Player* enemyPlayer = dynamic_cast<Player*>(enemy);
+        if (!enemyPlayer || enemyPlayer->GetBattleGround() != battleground ||
+            !PossibleTargetsValue::IsValid(enemy, defender) ||
+            !enemy->IsVisibleForOrDetect(defender, defender->GetCamera().GetBody(), true) ||
+            !sServerFacade.IsWithinLOSInMap(defender, enemy))
+            return false;
+
+        Spell* spell = enemy->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (!spell || spell->m_spellInfo->Id != 21651 || spell->getState() == SPELL_STATE_FINISHED)
+            return false;
+
+        // Resolve the actual cast target on this map; the spell ID alone is not proof
+        // of a flag capture, and despawned/replaced banners are no longer a threat.
+        GameObject* banner = defender->GetMap()->GetGameObject(spell->m_targets.getGOTargetGuid());
+        if (!banner || !banner->IsInWorld() || !sServerFacade.isSpawned(banner) ||
+            banner->IsInUse() || banner->GetGoState() != GO_STATE_READY ||
+            !enemyPlayer->CanUseBattleGroundObject() || !enemyPlayer->CanInteract(banner) ||
+            !enemyPlayer->IsWithinDistInMap(banner, INTERACTION_DISTANCE))
+            return false;
+
+        switch (banner->GetEntry())
+        {
+        case BG_AB_BANNER_MINE:
+        case BG_AB_BANNER_LUMBER_MILL:
+        case BG_AB_BANNER_FARM:
+        case BG_AB_BANNER_BLACKSMITH:
+        case BG_AB_BANNER_STABLE:
+        case BG_AB_BANNER_ALLIANCE:
+        case BG_AB_BANNER_CONTESTED_A:
+        case BG_AB_BANNER_HORDE:
+        case BG_AB_BANNER_CONTESTED_H:
+            break;
+        default:
+            return false;
+        }
+
+#ifdef CMANGOS
+        const auto event = defender->GetMap()->GetMapDataContainer().GetGameObjectEventIndex(banner->GetDbGuid());
+#else
+        const auto event = sBattleGroundMgr.GetGameObjectEventIndex(banner->GetDbGuid());
+#endif
+        return CanAssaultArathiBanner(event.event1, event.event2, GetTeamIndexByTeamId(enemyPlayer->GetTeam())) &&
+            battleground->IsActiveEvent(event.event1, event.event2);
+    }
+}
 
 std::list<ObjectGuid> EnemyPlayersValue::Calculate()
 {
@@ -66,6 +172,11 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 return false;
             }
 
+            if (!IsAllowedArathiDefenderTarget(target, player))
+            {
+                return false;
+            }
+
             /*
             // Check if too far away (Do we need this?)
             const float maxPvPDistance = GetMaxAttackDistance(player);
@@ -82,6 +193,18 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
     }
 
     return false;
+}
+
+bool EnemyPlayersValue::IsAllowedArathiDefenderTarget(Unit* target, Player* player)
+{
+    if (!target || !player || !GetActiveArathiBattleGround(player))
+        return true;
+
+    // The owner's combat must not let a pet or guardian bypass the flag boundary.
+    // Ordinary battleground NPCs retain their existing engagement rules.
+    const bool playerControlled = target->GetObjectGuid().IsPlayer() ||
+        target->GetMasterGuid().IsPlayer() || target->GetOwnerGuid().IsPlayer();
+    return CanDefenderEngage(target, player, playerControlled);
 }
 
 bool EnemyPlayersValue::IsReachable(Unit* target, Player* player)
@@ -145,6 +268,29 @@ ObjectGuid EnemyPlayerValue::Calculate()
     if (!enemyPlayers.empty())
     {
         const bool isMelee = !ai->IsRanged(bot);
+        BattleGround* arathi = GetActiveArathiBattleGround(bot);
+        if (arathi)
+        {
+            ArathiCombatCandidate bestCandidate;
+            for (const ObjectGuid& targetGuid : enemyPlayers)
+            {
+                Unit* target = ai->GetUnit(targetGuid);
+                // The cached list may outlive a death, charm, or a defender assignment.
+                if (!target || !PossibleTargetsValue::IsValid(target, bot) || !EnemyPlayersValue::IsValid(target, bot))
+                    continue;
+
+                const ArathiCombatCandidate candidate = {
+                    IsCapturingArathiBanner(target, bot, arathi), target->GetDistance(bot, true), target->GetHealth()
+                };
+                if (!bestEnemyPlayer || IsBetterArathiCombatTarget(candidate, bestCandidate, isMelee))
+                {
+                    bestEnemyPlayer = target;
+                    bestCandidate = candidate;
+                }
+            }
+            return bestEnemyPlayer ? bestEnemyPlayer->GetObjectGuid() : ObjectGuid();
+        }
+
         uint32 bestEnemyPlayerHealth = std::numeric_limits<uint32>::max();
         float bestEnemyPlayerDistance = std::numeric_limits<float>::max();
       

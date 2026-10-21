@@ -72,6 +72,8 @@ private:
     bool eotsJump();
     bool atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<uint32> const& vFlagIds);
     bool CheckFlagAv();
+    bool checkArathiFlag();
+    bool returnToArathiObjective();
     bool flagTaken();
     bool teamFlagTaken();
     bool protectFC();

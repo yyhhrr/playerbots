@@ -5,6 +5,7 @@
 #include "BattleGround/BattleGround.h"
 #include "BattleGround/BattleGroundMgr.h"
 #include "BattleGroundTactics.h"
+#include "playerbot/ArathiBasinTactics.h"
 #include "float.h"
 #ifdef MANGOSBOT_TWO
 #include "Entities/Vehicle.h"
@@ -80,9 +81,6 @@ std::vector<uint32> const vFlagsAB = { BG_AB_BANNER_ALLIANCE , BG_AB_BANNER_CONT
                                        BG_AB_BANNER_MINE };
 
 std::vector<uint32> const vFlagsWS = { GO_WS_SILVERWING_FLAG, GO_WS_WARSONG_FLAG, GO_WS_SILVERWING_FLAG_DROP, GO_WS_WARSONG_FLAG_DROP };
-static std::map<uint32, GameObject*> botSelectedObjectives;
-static std::map<uint32, uint32> botObjectiveSelectionTime;
-static std::map<uint32, uint32> botLastObjectiveCheckTime;
 
 #ifndef MANGOSBOT_ZERO
 std::vector<uint32> const vFlagsEY = { GO_EY_NETHERSTORM_FLAG, GO_EY_NETHERSTORM_FLAG_DROP};
@@ -2283,15 +2281,7 @@ std::vector<BattleBotPath*> const vPaths_HordeMine =
     &vPath_AV_Coldtooth_Mine_Entrance_to_Coldtooth_Mine_Boss,
 };
 
-static std::pair<uint32, uint32> AB_AttackObjectives[] =
-{
-    // Attack
-    { BG_AB_NODE_STABLES, BG_AB_BANNER_STABLE },
-    { BG_AB_NODE_BLACKSMITH, BG_AB_BANNER_BLACKSMITH },
-    { BG_AB_NODE_FARM, BG_AB_BANNER_FARM },
-    { BG_AB_NODE_LUMBER_MILL, BG_AB_BANNER_LUMBER_MILL },
-    { BG_AB_NODE_GOLD_MINE, BG_AB_BANNER_MINE }
-};
+
 
 #ifndef MANGOSBOT_ZERO
 static uint32  EY_AttackObjectives[] =
@@ -2845,6 +2835,19 @@ bool BGTactics::Execute(Event& event)
         break;
     }
 
+    if (bgType == BATTLEGROUND_AB && bg->GetStatus() == STATUS_IN_PROGRESS)
+    {
+        WorldLocation objective;
+        ai::arathi::SelectObjective(ai, objective);
+        if (!bot->IsAlive())
+            return false;
+        if (ai::arathi::IsCapturing(bot))
+            return true;
+    }
+
+    if (getName() == "defend objective")
+        return returnToArathiObjective();
+
     if (getName() == "move to start")
         return moveToStart();
 
@@ -2899,6 +2902,14 @@ bool BGTactics::Execute(Event& event)
         if (bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) || bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG) || bot->HasAura(EY_SPELL_NETHERSTORM_FLAG))
 #endif
             return false;
+
+        if (bgType == BATTLEGROUND_AB)
+        {
+            // Recover from knockbacks or resurrection away from the fixed routes
+            // by pathfinding toward the assigned flag, without choosing a random route.
+            ai::PositionEntry assigned = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
+            return assigned.isSet() && MoveTo(assigned.mapId, assigned.x, assigned.y, assigned.z);
+        }
 
         if (startNewPathBegin(*vPaths))
             return true;
@@ -3206,122 +3217,8 @@ bool BGTactics::selectObjective(bool reset)
     }
     case BATTLEGROUND_AB:
     {
-        // Common setup for both HORDE and ALLIANCE
-        uint32 role = context->GetValue<uint32>("bg role")->Get();
-        bool defender = role < 5;
-        uint32 botGUID = bot->GetGUIDLow();
-
-        bool isDead = bot->IsDead();
-
-        if (isDead && (botSelectedObjectives[botGUID] != nullptr))
-        {
-            bot->Say("I'm dead, guess I'll reset my objective.", LANG_UNIVERSAL);
-            botSelectedObjectives[botGUID] = nullptr; // Reset objective if we die... maybe more lucky elsewhere -- wait I don't think this is executed on dead bots so it's never triggered? Try something else
-            botObjectiveSelectionTime[botGUID] = 0;
-        }
-
-        std::set<GameObject*> uniqueObjectives;
-
-        for (const auto& objective : AB_AttackObjectives)
-        {
-            bool isActiveNeutral = bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_NEUTRAL);
-
-            bool isOccupied = (bot->GetTeam() == HORDE) ? bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_ALLY_OCCUPIED) : bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_HORDE_OCCUPIED);
-            bool isContested = (bot->GetTeam() == HORDE) ? bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_ALLY_CONTESTED) : bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_HORDE_CONTESTED);
-            bool isFriendly = (bot->GetTeam() == HORDE) ? bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_HORDE_OCCUPIED) || bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_HORDE_CONTESTED) : bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_ALLY_OCCUPIED) || bg->IsActiveEvent(objective.first, BG_AB_NODE_STATUS_ALLY_CONTESTED);
-
-            // If we're a defender, target friendly, neutral or under attack objectives (maybe remove the under attack ones?). if we're an attacker, target enemy, neutral or under attack objectives. 
-            if ((defender && (isActiveNeutral || isFriendly || isContested)) || (!defender && (isActiveNeutral || isContested || isOccupied)))
-            {
-                if (GameObject* pGO = bot->GetMap()->GetGameObject(bg->GetSingleGameObjectGuid(objective.first, BG_AB_NODE_STATUS_NEUTRAL)))
-                {
-                    // Add it to the list if it's valid.
-                    uniqueObjectives.insert(pGO);
-                }
-            }
-        }
-
-        GameObject* BgObjective = nullptr;
-
-
-
-        // Check if the bot has previously selected an objective and if it's still valid
-        if (botSelectedObjectives.find(botGUID) != botSelectedObjectives.end() &&
-            uniqueObjectives.find(botSelectedObjectives[botGUID]) != uniqueObjectives.end())
-        {
-            uint32 elapsedTime = WorldTimer::getMSTime() - botObjectiveSelectionTime[botGUID];
-            float probabilityToKeepSameObjective = 1.0f; // Start at 100% then lower over time
-
-            GameObject* lastObj = botSelectedObjectives[botGUID];
-            float const lastObjDist = bot->GetDistance(lastObj);
-
-            if (lastObjDist < 50.00f) // if we are close, stick to the objective a bit longer
-            {
-                if (elapsedTime > 60000)
-                {
-                    uint32 extraTime = (elapsedTime - 60000) / 1000; // Calculate seconds past the 60 seconds mark
-                    probabilityToKeepSameObjective -= (0.01f * extraTime); // Decrease by 1% for each second past 40 seconds
-                }
-
-                float randomValue = float(rand() % 101) / 100.0f;
-
-                if (randomValue <= probabilityToKeepSameObjective)
-                {
-                    BgObjective = botSelectedObjectives[botGUID];
-                }
-                else uniqueObjectives.erase(lastObj);
-            }
-            else
-            {
-                if (elapsedTime > 40000)
-                {
-                    uint32 extraTime = (elapsedTime - 40000) / 1000; // Calculate seconds past the 40 seconds mark
-                    probabilityToKeepSameObjective -= (0.01f * extraTime); // Decrease by 1% for each second past 40 seconds
-                }
-
-                float randomValue = float(rand() % 101) / 100.0f;
-
-                if (randomValue <= probabilityToKeepSameObjective)
-                {
-                    BgObjective = botSelectedObjectives[botGUID];
-                }
-                else uniqueObjectives.erase(lastObj);
-            }
-        }
-
-        // If BgObjective is still nullptr at this point, select a new one
-        if (!BgObjective && !uniqueObjectives.empty())
-        {
-            std::vector<GameObject*> objectives(uniqueObjectives.begin(), uniqueObjectives.end());
-
-            // Select a random objective from your unique objectives
-            BgObjective = objectives[urand(0, objectives.size() - 1)];
-            botSelectedObjectives[botGUID] = BgObjective; // Remember this objective for the bot
-            botObjectiveSelectionTime[botGUID] = WorldTimer::getMSTime(); // Remember the time of selection
-        }
-
-        if (BgObjective)
-        {
-            pos.Set(BgObjective->GetPositionX(), BgObjective->GetPositionY(), BgObjective->GetPositionZ(), BgObjective->GetMapId());
-            posMap["bg objective"] = pos;
-            std::string ObjVerbose = "";
-
-            if (std::abs(pos.x - 977.016) <= 10.0) ObjVerbose = "Blacksmith";
-            else if (std::abs(pos.x - 806.182) <= 10.0) ObjVerbose = "Farm";
-            else if (std::abs(pos.x - 856.142) <= 10.0) ObjVerbose = "Lumber Mill";
-            else if (std::abs(pos.x - 1166.79) <= 10.0) ObjVerbose = "Stables";
-            else if (std::abs(pos.x - 1146.92) <= 10.0) ObjVerbose = "Gold Mine";
-
-            // DEBUG SAY
-            //ostringstream out;
-            //if(defender) out << "Defending " + ObjVerbose;
-            //else out << "Attacking " + ObjVerbose;
-            //bot->Say(out.str(), LANG_UNIVERSAL);
-
-
-            return true;
-        }
-        break;
+        WorldLocation objective;
+        return ai::arathi::SelectObjective(ai, objective);
     }
 #ifndef MANGOSBOT_ZERO
     case BATTLEGROUND_EY: //Role < 4: Defender, else Attacker. In the beginning split for all points. Afterwards pick random strategies
@@ -4115,7 +4012,10 @@ bool BGTactics::moveToObjective()
         // don't try to move if already close
         if (sqrt(bot->GetDistance(pos.x, pos.y, pos.z, DIST_CALC_NONE)) < 5.0f)
         {
-            resetObjective();
+            if (bgType == BATTLEGROUND_AB)
+                ai->StopMoving();
+            else
+                resetObjective();
 
             return true;
         }
@@ -4269,6 +4169,12 @@ bool BGTactics::resetObjective()
     BattleGround *bg = bot->GetBattleGround();
     if (!bg)
         return false;
+
+    if (bot->GetMapId() == 529)
+    {
+        WorldLocation objective;
+        return ai::arathi::SelectObjective(ai, objective);
+    }
 
     // sometimes change role
 #ifdef MANGOSBOT_ZERO
@@ -4460,6 +4366,9 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
         // AV is handled in BGTactics::CheckFlagAv
         return false;
     }
+
+    if (bgType == BATTLEGROUND_AB)
+        return checkArathiFlag();
 
     std::list<ObjectGuid> closeObjects;
     std::list<ObjectGuid> closePlayers;
@@ -4670,6 +4579,51 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
     return false;
 }
 
+bool BGTactics::checkArathiFlag()
+{
+    const auto objects = context->GetValue<std::list<ObjectGuid>>("closest game objects static los")->Get();
+    for (const ObjectGuid& guid : objects)
+    {
+        GameObject* flag = ai->GetGameObject(guid);
+        if (!flag || std::find(vFlagsAB.begin(), vFlagsAB.end(), flag->GetEntry()) == vFlagsAB.end() ||
+            !ai::arathi::CanCapture(ai, flag))
+            continue;
+
+        const SpellEntry* spellInfo = sServerFacade.LookupSpellInfo(SPELL_CAPTURE_BANNER);
+        if (!spellInfo) return false;
+        if (bot->IsMounted()) bot->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
+        if (bot->IsInDisallowedMountForm()) bot->RemoveSpellsCausingAura(SPELL_AURA_MOD_SHAPESHIFT);
+        ai->StopMoving();
+        Spell* spell = new Spell(bot, spellInfo, false);
+        spell->m_targets.setGOTarget(flag);
+        spell->SpellStart(&spell->m_targets);
+        ai->WaitForSpellCast(spell);
+        // Keep the assignment while the banner changes and the node is being secured.
+        return true;
+    }
+    return false;
+}
+
+bool BGTactics::returnToArathiObjective()
+{
+    if (bot->GetMapId() != 529 || !bot->IsAlive() ||
+        !context->GetValue<bool>("manual bool", "arathi defender")->Get() || ai::arathi::IsCapturing(bot))
+        return false;
+    ai::PositionEntry anchor = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
+    if (!anchor.isSet() || anchor.mapId != bot->GetMapId() ||
+        sServerFacade.GetDistance2d(bot, anchor.x, anchor.y) <= 40.0f)
+        return false;
+
+    // A close attacker may be fought in self-defence, but cannot drag a guard away indefinitely.
+    bot->AttackStop();
+    if (Pet* pet = bot->GetPet())
+    {
+        pet->AttackStop();
+        pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
+    }
+    return MoveTo(anchor.mapId, anchor.x, anchor.y, anchor.z, false, false, false, true);
+}
+
 bool BGTactics::flagTaken()
 {
     BattleGroundWS* bg = (BattleGroundWS *)bot->GetBattleGround();
@@ -4707,6 +4661,9 @@ bool BGTactics::useBuff()
     if (!bg)
         return false;
 
+    if (bot->GetMapId() == 529 && (ai::arathi::IsCapturing(bot) || ai::arathi::IsCoveringCapture(ai)))
+        return false;
+
     BattleGroundTypeId bgType = bg->GetTypeId();
 #ifdef MANGOSBOT_TWO
     if (bgType == BATTLEGROUND_RB)
@@ -4734,6 +4691,13 @@ bool BGTactics::useBuff()
 
         if (!sServerFacade.isSpawned(go))
             continue;
+
+        if (bgType == BATTLEGROUND_AB && context->GetValue<bool>("manual bool", "arathi defender")->Get())
+        {
+            ai::PositionEntry anchor = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
+            if (!anchor.isSet() || go->GetDistance2d(anchor.x, anchor.y) > 25.0f || bot->IsInCombat())
+                continue;
+        }
 
         // use speed buff only if close
         if (sServerFacade.IsDistanceGreaterThan(sServerFacade.GetDistance2d(bot, go), go->GetEntry() == Buff_Entries[0] ? 20.0f : VISIBILITY_DISTANCE_SMALL))

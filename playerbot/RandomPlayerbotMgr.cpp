@@ -2258,11 +2258,88 @@ bool RandomPlayerbotMgr::AddRandomBot(uint32 bot)
         SetEventValue(bot, "login", 1, -1);
         uint32 randomTime = urand(sPlayerbotAIConfig.minRandomBotReviveTime, sPlayerbotAIConfig.maxRandomBotReviveTime);
         SetEventValue(bot, "update", 1, randomTime);
-        currentBots.push_back(bot);
+        if (std::find(currentBots.begin(), currentBots.end(), bot) == currentBots.end())
+            currentBots.push_back(bot);
         sLog.outDetail("Random bot added #%d", bot);
     }
 
     return true;
+}
+
+std::list<std::string> RandomPlayerbotMgr::LoginGuildBots(Player* requester)
+{
+    if (!sPlayerbotAIConfig.enabled)
+        return {"Playerbot system is disabled."};
+    if (!requester || !requester->GetSession() ||
+        (requester->GetPlayerbotAI() && !requester->GetPlayerbotAI()->IsRealPlayer()))
+        return {"Please use .bot guildlogin from a player character."};
+
+    const uint32 guildId = requester->GetGuildId();
+    Guild* guild = guildId ? sGuildMgr.GetGuildById(guildId) : nullptr;
+    if (!guild || !guild->GetMemberSlot(requester->GetObjectGuid()))
+        return {"\xE4\xBD\xA0\xE5\xBD\x93\xE5\x89\x8D\xE6\xB2\xA1\xE6\x9C\x89\xE5\x8A\xA0\xE5\x85\xA5\xE5\x85\xAC\xE4\xBC\x9A\xE3\x80\x82"};
+    if (sWorld.IsShutdowning())
+        return {"\xE6\x9C\x8D\xE5\x8A\xA1\xE5\x99\xA8\xE6\xAD\xA3\xE5\x9C\xA8\xE5\x85\xB3\xE9\x97\xAD\xEF\xBC\x8C\xE8\xAF\xB7\xE7\xA8\x8D\xE5\x90\x8E\xE9\x87\x8D\xE8\xAF\x95\xE3\x80\x82"};
+
+    auto result = CharacterDatabase.PQuery(
+        "SELECT c.guid, c.account FROM characters c INNER JOIN guild_member g ON g.guid = c.guid WHERE g.guildid = %u", guildId);
+    if (!result)
+        return {"\xE6\x9C\xAA\xE8\x83\xBD\xE8\xAF\xBB\xE5\x8F\x96\xE5\x85\xAC\xE4\xBC\x9A\xE6\x88\x90\xE5\x91\x98\xEF\xBC\x8C\xE8\xAF\xB7\xE6\xA3\x80\xE6\x9F\xA5\xE8\xA7\x92\xE8\x89\xB2\xE6\x95\xB0\xE6\x8D\xAE\xE5\xBA\x93\xE3\x80\x82"};
+
+    uint32 requested = 0, online = 0, pending = 0, skipped = 0, failed = 0;
+    const uint32 keepSeconds = std::max(uint32(60), sPlayerbotAIConfig.minRandomBotInWorldTime);
+    do
+    {
+        Field* fields = result->Fetch();
+        const uint32 guid = fields[0].GetUInt32();
+        const uint32 account = fields[1].GetUInt32();
+        const ObjectGuid objectGuid(HIGHGUID_PLAYER, guid);
+        Player* player = sObjectMgr.GetPlayer(objectGuid, false);
+
+        // Recheck live membership; never activate another player's offline character.
+        const bool randomAccount = sPlayerbotAIConfig.IsInRandomAccountList(account);
+        const bool realSession = sWorld.FindSession(account) ||
+            (player && (!player->GetPlayerbotAI() || player->GetPlayerbotAI()->IsRealPlayer()));
+        const bool eligible = guild->GetMemberSlot(objectGuid) && randomAccount && !realSession;
+        const bool loggingIn = eligible && !player && GetEventValue(guid, "login");
+        const auto candidate = ai::guild_bot_login::Select(guildId, eligible ? guildId : 0,
+            randomAccount, realSession, player != nullptr, loggingIn);
+
+        if (candidate == ai::guild_bot_login::Candidate::Skip)
+        {
+            ++skipped;
+            continue;
+        }
+        if (candidate == ai::guild_bot_login::Candidate::Online)
+        {
+            ++online;
+            continue;
+        }
+
+        guildLoginProtection.Keep(guid, keepSeconds);
+        SetEventValue(guid, "logout", 0, 0);
+        SetEventValue(guid, "add", 1, keepSeconds);
+        if (candidate == ai::guild_bot_login::Candidate::Pending)
+        {
+            ++pending;
+            continue;
+        }
+
+        // Submit holders now, independently of random login intervals and population caps.
+        if (AddRandomBot(guid))
+            ++requested;
+        else
+        {
+            ClearGuildLoginProtection(guid);
+            ++failed;
+        }
+    } while (result->NextRow());
+
+    std::ostringstream message;
+    message << "\xE5\x85\xAC\xE4\xBC\x9A\xE6\x9C\xBA\xE5\x99\xA8\xE4\xBA\xBA\xE4\xB8\x8A\xE7\xBA\xBF\xEF\xBC\x9A\xE5\xB7\xB2\xE6\x8F\x90\xE4\xBA\xA4\x20" << requested << "\x20\xE4\xB8\xAA\xE7\x99\xBB\xE5\xBD\x95\xE8\xAF\xB7\xE6\xB1\x82\xEF\xBC\x8C\xE6\xAD\xA3\xE5\x9C\xA8\xE7\x99\xBB\xE5\xBD\x95\x20" << pending
+        << "\x20\xE4\xB8\xAA\xEF\xBC\x8C\xE5\xB7\xB2\xE5\x9C\xA8\xE7\xBA\xBF\x20" << online << "\x20\xE4\xB8\xAA\xEF\xBC\x8C\xE8\xB7\xB3\xE8\xBF\x87\xE9\x9D\x9E\xE6\x9C\xBA\xE5\x99\xA8\xE4\xBA\xBA\xE7\xAD\x89\xE6\x88\x90\xE5\x91\x98\x20" << skipped << "\x20\xE4\xB8\xAA\xEF\xBC\x8C\xE5\xA4\xB1\xE8\xB4\xA5\x20" << failed
+        << "\x20\xE4\xB8\xAA\xE3\x80\x82\xE8\xA7\x92\xE8\x89\xB2\xE6\x95\xB0\xE6\x8D\xAE\xE5\x8A\xA0\xE8\xBD\xBD\xE5\xAE\x8C\xE6\x88\x90\xE5\x90\x8E\xE4\xB8\x8A\xE7\xBA\xBF\xE3\x80\x82";
+    return {message.str()};
 }
 
 void RandomPlayerbotMgr::MovePlayerBot(uint32 guid, PlayerbotHolder* newHolder)
@@ -2312,7 +2389,7 @@ bool RandomPlayerbotMgr::ProcessBot(uint32 bot)
 
     bool isValid = true;
    
-    if (sPlayerbotAIConfig.randomBotTimedLogout && !GetEventValue(bot, "add") && !sPlayerbotAIConfig.asyncBotLogin) // RandomBotInWorldTime is expired.
+    if (sPlayerbotAIConfig.randomBotTimedLogout && !GetEventValue(bot, "add") && !sPlayerbotAIConfig.asyncBotLogin && !IsGuildLoginProtected(bot)) // RandomBotInWorldTime is expired.
         isValid = false;
     else if(!botsAllowedInWorld)                                               // Logout if all players logged out
         isValid = false;
@@ -3749,6 +3826,7 @@ void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 
 void RandomPlayerbotMgr::OnPlayerLoginError(uint32 bot)
 {
+    ClearGuildLoginProtection(bot);
     SetEventValue(bot, "add", 0, 0);
     SetEventValue(bot, "login", 0, 0);
     currentBots.remove(bot);

@@ -4,10 +4,6 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 
-#include "Grids/GridNotifiers.h"
-#include "Grids/GridNotifiersImpl.h"
-#include "Grids/CellImpl.h"
-
 #include "playerbot/strategy/values/PositionValue.h"
 #include "Entities/Transports.h"
 
@@ -24,11 +20,11 @@ bool UseMeetingStoneAction::Execute(Event& event)
     ObjectGuid guid;
     p >> guid;
 
-	if (requester->GetSelectionGuid() && requester->GetSelectionGuid() != bot->GetObjectGuid())
-		return false;
+    if (requester->GetSelectionGuid() && requester->GetSelectionGuid() != bot->GetObjectGuid())
+        return false;
 
-	if (!requester->GetSelectionGuid() && requester->GetGroup() != bot->GetGroup())
-		return false;
+    if (!requester->GetSelectionGuid() && requester->GetGroup() != bot->GetGroup())
+        return false;
 
     if (requester->IsBeingTeleported())
         return false;
@@ -47,125 +43,134 @@ bool UseMeetingStoneAction::Execute(Event& event)
     if (!gameObject)
         return false;
 
-	const GameObjectInfo* goInfo = gameObject->GetGOInfo();
-	if (!goInfo || goInfo->type != GAMEOBJECT_TYPE_SUMMONING_RITUAL)
+    const GameObjectInfo* goInfo = gameObject->GetGOInfo();
+    if (!goInfo || goInfo->type != GAMEOBJECT_TYPE_SUMMONING_RITUAL)
         return false;
 
     return Teleport(requester, requester, bot);
 }
 
-class AnyGameObjectInObjectRangeCheck
+namespace
 {
-public:
-    AnyGameObjectInObjectRangeCheck(WorldObject const* obj, float range) : i_obj(obj), i_range(range) {}
-    WorldObject const& GetFocusObject() const { return *i_obj; }
-    bool operator()(GameObject* u)
+    bool CanDirectSummon(Player* bot, Player* requester)
     {
-        if (u && i_obj->IsWithinDistInMap(u, i_range) && sServerFacade.isSpawned(u) && u->GetGOInfo())
-            return true;
-
-        return false;
+        return bot && requester && bot != requester && bot->GetSession() &&
+            bot->GetPlayerbotAI() && !bot->GetPlayerbotAI()->IsRealPlayer() &&
+            requester->GetGroup() && bot->GetGroup() == requester->GetGroup();
     }
-
-private:
-    WorldObject const* i_obj;
-    float i_range;
-};
+}
 
 bool SummonAction::Execute(Event& event)
 {
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
-    if (!requester || requester->IsBeingTeleported())
+    if (!CanDirectSummon(bot, requester))
         return false;
 
-    if (requester->GetSession()->GetSecurity() > SEC_PLAYER || sPlayerbotAIConfig.nonGmFreeSummon)
-        return Teleport(requester, requester, bot);
-
-    if(bot->GetMapId() == requester->GetMapId() && !WorldPosition(bot).canPathTo(requester, bot) && bot->GetDistance(requester) < sPlayerbotAIConfig.sightDistance) //We can't walk to requester so fine to short-range teleport.
-        return Teleport(requester, requester, bot);
-
-    if (bot->IsTaxiFlying())
-        return false;
-
-    if (SummonUsingGos(requester, requester, bot) || SummonUsingNpcs(requester, requester, bot))
-    {
-        ai->TellPlayerNoFacing(requester, BOT_TEXT("hello"));
-        return true;
-    }
-
-    if (SummonUsingGos(requester, bot, requester) || SummonUsingNpcs(requester, bot, requester))
-    {
-        ai->TellPlayerNoFacing(requester, "Welcome!");
-        return true;
-    }
-
-    return false;
+    // Chat may arrive on another map's thread. Resolve both players on the world
+    // thread while map updates are idle; no summon packet or AI reaction wait.
+    QueueDirectSummon(bot->GetObjectGuid(), requester->GetObjectGuid());
+    return true;
 }
 
-bool SummonAction::SummonUsingGos(Player* requester, Player *summoner, Player *player)
+void SummonAction::QueueDirectSummon(ObjectGuid botGuid, ObjectGuid requesterGuid, uint32 attempts)
 {
-    std::list<GameObject*> targets;
-    AnyGameObjectInObjectRangeCheck u_check(summoner, sPlayerbotAIConfig.sightDistance);
-    GameObjectListSearcher<AnyGameObjectInObjectRangeCheck> searcher(targets, u_check);
-    Cell::VisitAllObjects((const WorldObject*)summoner, searcher, sPlayerbotAIConfig.sightDistance);
-
-    for(std::list<GameObject*>::iterator tIter = targets.begin(); tIter != targets.end(); ++tIter)
+    sWorld.GetMessager().AddMessage([botGuid, requesterGuid, attempts](World*)
     {
-        GameObject* go = *tIter;
-        if (go && sServerFacade.isSpawned(go) && go->GetGoType() == GAMEOBJECT_TYPE_MEETINGSTONE)
-            return Teleport(requester, summoner, player);
-    }
+        Player* target = sObjectAccessor.FindPlayer(botGuid);
+        Player* requester = sObjectAccessor.FindPlayer(requesterGuid);
+        if (!CanDirectSummon(target, requester))
+            return; // Also handles leaving/disbanding the group before execution.
 
-    ai->TellPlayerNoFacing(requester, summoner == bot ? "There is no meeting stone nearby" : "There is no meeting stone near you");
-    return false;
-}
+        PlayerbotAI* targetAI = target->GetPlayerbotAI();
+        if (target->IsBeingTeleported())
+            targetAI->HandleTeleportAck();
 
-bool SummonAction::SummonUsingNpcs(Player* requester, Player *summoner, Player *player)
-{
-    if (!sPlayerbotAIConfig.summonAtInnkeepersEnabled)
-        return false;
-
-    std::list<Unit*> targets;
-    AnyUnitInObjectRangeCheck u_check(summoner, sPlayerbotAIConfig.sightDistance);
-    UnitListSearcher<AnyUnitInObjectRangeCheck> searcher(targets, u_check);
-    Cell::VisitAllObjects(summoner, searcher, sPlayerbotAIConfig.sightDistance);
-    for(std::list<Unit*>::iterator tIter = targets.begin(); tIter != targets.end(); ++tIter)
-    {
-        Unit* unit = *tIter;
-        if (unit && unit->HasFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_INNKEEPER))
+        // A real player's map transfer must finish before its position is usable.
+        // Retain the command through this transition instead of silently dropping it.
+        if (!target->IsInWorld() || target->IsBeingTeleported() ||
+            !requester->IsInWorld() || requester->IsBeingTeleported())
         {
-            if (!player->HasItemCount(6948, 1, false))
-            {
-                ai->TellPlayerNoFacing(requester, player == bot ? "I have no hearthstone" : "You have no hearthstone");
-                return false;
-            }
-
-            if (!sServerFacade.IsSpellReady(player, 8690))
-            {
-                ai->TellPlayerNoFacing(requester, player == bot ? "My hearthstone is not ready" : "Your hearthstone is not ready");
-                return false;
-            }
-
-            // Trigger cooldown
-            SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(8690);
-            if (!spellInfo)
-                return false;
-            Spell spell(player, spellInfo,
-#ifdef MANGOS
-                    0
-#endif
-#ifdef CMANGOS
-                    TRIGGERED_OLD_TRIGGERED
-#endif
-                    );
-            spell.SendSpellCooldown();
-
-            return Teleport(requester, summoner, player);
+            if (attempts < 200)
+                QueueDirectSummon(botGuid, requesterGuid, attempts + 1);
+            else
+                targetAI->TellPlayerNoFacing(requester, "Summon failed: map transfer did not finish.");
+            return;
         }
+
+        SummonAction action(targetAI);
+        if (!action.DirectSummon(requester))
+            targetAI->TellPlayerNoFacing(requester, "Summon failed: could not reach your map and position.");
+    });
+}
+
+bool SummonAction::DirectSummon(Player* requester)
+{
+    if (!CanDirectSummon(bot, requester) || !requester->GetMap())
+        return false;
+
+    // The player's valid world position also works inside buildings and on transports.
+    Map* destinationMap = requester->GetMap();
+    const uint32 mapId = requester->GetMapId();
+    const float x = requester->GetPositionX();
+    const float y = requester->GetPositionY();
+    const float z = requester->GetPositionZ();
+    const float orientation = requester->GetOrientation();
+
+    bot->BreakCharmIncoming();
+    bot->InterruptNonMeleeSpells(true);
+    bot->CombatStopWithPets(true);
+    bot->TaxiFlightInterrupt();
+    bot->GetMotionMaster()->Clear();
+
+    const bool resurrect = !bot->IsAlive();
+    if (resurrect)
+    {
+        bot->ResurrectPlayer(1.0f, false);
+        bot->SpawnCorpseBones();
     }
 
-    ai->TellPlayerNoFacing(requester, summoner == bot ? "There are no innkeepers nearby" : "There are no innkeepers near you");
-    return false;
+    // Expire any older pending summon so its accept event cannot move us away later.
+    bot->SetSummonPoint(mapId, x, y, z, requester->GetObjectGuid());
+    bot->SummonIfPossible(false, requester->GetObjectGuid());
+
+    if (bot->GetBattleGroundId() && bot->GetBattleGroundId() != requester->GetBattleGroundId())
+        bot->LeaveBattleground(false);
+    if (destinationMap->IsBattleGround())
+    {
+        if (!bot->GetMap()->IsBattleGround())
+            bot->SetBattleGroundEntryPoint();
+        bot->SetBattleGroundId(requester->GetBattleGroundId(), requester->GetBattleGroundTypeId());
+    }
+
+    // CMaNGOS entry/instance hooks see this override only during this synchronous
+    // transfer. No GM permissions or saved instance bindings are changed.
+    ai->directSummonMap = destinationMap;
+    struct ClearSummonMap
+    {
+        Map*& map;
+        ~ClearSummonMap() { map = nullptr; }
+    } clearSummonMap{ai->directSummonMap};
+
+    if (!bot->TeleportTo(mapId, x, y, z, orientation))
+        return false;
+    ai->HandleTeleportAck();
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || bot->GetMap() != destinationMap ||
+        bot->GetDistance(requester) > 5.0f)
+        return false;
+
+    if (GenericTransport* transport = requester->GetTransport())
+    {
+        bot->m_movementInfo.t_pos = requester->m_movementInfo.GetTransportPos();
+        transport->AddPassenger(bot, false);
+    }
+
+    if (resurrect)
+        bot->SetHealth(bot->GetMaxHealth());
+    if (ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT))
+        SET_AI_VALUE2(PositionEntry, "pos", "stay", PositionEntry(x, y, z, mapId));
+    if (ai->HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT))
+        SET_AI_VALUE2(PositionEntry, "pos", "guard", PositionEntry(x, y, z, mapId));
+    return true;
 }
 
 bool SummonAction::Teleport(Player* requester, Player *summoner, Player *player)
@@ -254,7 +259,7 @@ bool SummonAction::Teleport(Player* requester, Player *summoner, Player *player)
 
                 if (resurrectPlayer)
                     ai->TellPlayerNoFacing(requester, "I live, again!");
-                    
+
                 if(ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT))
                     SET_AI_VALUE2(PositionEntry, "pos", "stay", PositionEntry(x, y, z, mapId));
                 if (ai->HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT))
@@ -283,6 +288,6 @@ bool AcceptSummonAction::Execute(Event& event)
     response << uint8(1);
 #endif
     bot->GetSession()->HandleSummonResponseOpcode(response);
-    
+
     return true;
 }

@@ -2,6 +2,8 @@
 #include "TeleportTests.h"
 #include "TestRegistry.h"
 #include "playerbot/PlayerbotAI.h"
+#include "playerbot/strategy/actions/UseMeetingStoneAction.h"
+#include "playerbot/PlayerbotAIConfig.h"
 
 using namespace ai;
 
@@ -97,6 +99,75 @@ namespace
 
         return TestResult::PASS;
     }
+}
+
+TestResult CommandDirectSummonSpawn::Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message)
+{
+    Player* target = GetSpawnedBot(ctx);
+    if (!target || target->IsBeingTeleported())
+        return TestResult::PENDING;
+
+    if (params == "reject")
+    {
+        SummonAction action(target->GetPlayerbotAI());
+        Event event("summon", "", bot);
+        if (action.Execute(event))
+        {
+            message = "Direct summon accepted a bot outside the requester's group";
+            return TestResult::FAIL;
+        }
+        return TestResult::PASS;
+    }
+
+    if (!bot->GetGroup() || target->GetGroup() != bot->GetGroup() ||
+        (target->GetMap() == bot->GetMap() && target->GetDistance(bot) < 20.0f))
+    {
+        message = "Direct summon test requires a distant bot in the requester's group";
+        return TestResult::FAIL;
+    }
+
+    // Prepare on the world thread to avoid modifying a spawned bot on another map.
+    const ObjectGuid targetGuid = target->GetObjectGuid();
+    const ObjectGuid requesterGuid = bot->GetObjectGuid();
+    sWorld.GetMessager().AddMessage([targetGuid, requesterGuid, params](World*)
+    {
+        Player* target = sObjectAccessor.FindPlayer(targetGuid);
+        Player* requester = sObjectAccessor.FindPlayer(requesterGuid);
+        if (!target || !requester || !target->GetPlayerbotAI())
+            return;
+        if (params.find("dead") != std::string::npos && target->IsAlive())
+            target->KillPlayer();
+        if (params.find("combat") != std::string::npos)
+            ForceCombat(target, 6927);
+
+        const std::string command = params.find("chinese") != std::string::npos ?
+            "\xE8\xBF\x87\xE6\x9D\xA5" : "summon";
+        target->GetPlayerbotAI()->HandleCommand(CHAT_MSG_PARTY,
+            sPlayerbotAIConfig.commandPrefix + command, *requester);
+    });
+    return TestResult::PASS;
+}
+
+TestResult CommandCheckDirectSummon::Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message)
+{
+    Player* target = GetSpawnedBot(ctx);
+    if (!target || target->IsBeingTeleported() || target->GetMap() != bot->GetMap() ||
+        target->GetDistance(bot) > 5.0f || !target->IsAlive())
+    {
+        message = "Direct summon did not deliver the live bot to the requester's exact map and position";
+        return TestResult::FAIL;
+    }
+    if (params == "full health" && target->GetHealth() != target->GetMaxHealth())
+    {
+        message = "Direct summon resurrected the bot without full health";
+        return TestResult::FAIL;
+    }
+    if (target->GetPlayerbotAI()->GetDirectSummonMap())
+    {
+        message = "Direct summon left its entry override enabled";
+        return TestResult::FAIL;
+    }
+    return TestResult::PASS;
 }
 
 TestResult CommandSummonRequest::Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message)
@@ -356,6 +427,31 @@ bool MonitorSpawnDead::IsConditionMet(const std::string& monitorStr, Player* bot
 
 void TestRegistry::RegisterTeleportTests()
 {
+    for (const std::string mode : {"alive", "dead", "dead_chinese", "combat"})
+    {
+        for (const bool crossMap : {false, true})
+        {
+            RegisterTest("direct_summon_" + mode + (crossMap ? "_cross_map" : "_same_map"), {
+                "gm visible off",
+                "teleport stormwind",
+                "spawn level=60 temporary=1 login=1",
+                "wait 5",
+                "hide spawn",
+                "form",
+                crossMap ? "teleport orgrimmar" : "teleport elwynn",
+                "direct summon spawn " + mode,
+                "wait 1",
+                mode.find("dead") != std::string::npos ? "check direct summon full health" : "check direct summon",
+                "gm visible on"
+            });
+        }
+    }
+    RegisterTest("direct_summon_outside_group_rejected", {
+        "gm visible off", "teleport stormwind",
+        "spawn level=60 temporary=1 login=1", "wait 5", "hide spawn",
+        "teleport elwynn", "direct summon spawn reject", "gm visible on"
+    });
+
     static const std::string gmInvisible = "gm visible off";
     static const std::string gmVisible = "gm visible on";
     static const std::string needAlive = "monitor bot dead => abort \"Bot died, test interrupted\"";

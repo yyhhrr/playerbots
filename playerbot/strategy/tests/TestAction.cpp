@@ -77,6 +77,8 @@ void TestAction::RegisterCommands()
     commands.push_back(std::make_unique<CommandSetupForceObjectives>());
     commands.push_back(std::make_unique<CommandSetupDo>());
     commands.push_back(std::make_unique<CommandSummonRequest>());
+    commands.push_back(std::make_unique<CommandDirectSummonSpawn>());
+    commands.push_back(std::make_unique<CommandCheckDirectSummon>());
     commands.push_back(std::make_unique<CommandResurrectRequest>());
     commands.push_back(std::make_unique<CommandKillSpawn>());
     commands.push_back(std::make_unique<CommandMoveSpawn>());

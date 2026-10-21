@@ -39,6 +39,7 @@
 *.o.*
 *.orig
 *.patch
+!/patches/cmangos-classic-direct-summon.patch
 *.rej
 *.so
 *.so.dbg
@@ -65,6 +66,12 @@ _build
 build
 /dep/libmpq/autom4te.cache/
 tests
+!/tests/
+/tests/*
+!/tests/guild_bot_login_test.cpp
+!/tests/arathi_basin_policy_test.cpp
+!/tests/arathi_basin_combat_test.cpp
+!/tests/arathi_capture_policy_test.cpp
 
 # Generated files
 *.ncb

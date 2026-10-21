@@ -260,6 +260,7 @@ namespace ai
             creators["bg move to objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "move to objective"); };
             creators["bg select objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "select objective"); };
             creators["bg check objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "check objective"); };
+            creators["bg defend objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "defend objective"); };
             creators["bg attack fc"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "attack fc"); };
             creators["bg protect fc"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "protect fc"); };
             creators["bg use buff"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "use buff"); };

@@ -6,6 +6,7 @@
 #include "PlayerbotMgr.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "WorldPosition.h"
+#include "GuildBotLogin.h"
 #include <map>
 #include <list>
 
@@ -146,6 +147,9 @@ public:
         static InventoryResult CanEquipUnseenItem(Player* player, uint8 slot, uint16& dest, uint32 item);
 
         bool AddRandomBot(uint32 bot);
+        std::list<std::string> LoginGuildBots(Player* requester);
+        bool IsGuildLoginProtected(uint32 bot) { return guildLoginProtection.Contains(bot); }
+        void ClearGuildLoginProtection(uint32 bot) { guildLoginProtection.Clear(bot); }
         bool CreateRandomBot(const std::string& name, uint8 race, uint8 cls, uint32 level);
         bool DeleteRandomBot(ObjectGuid guid);
         virtual void MovePlayerBot(uint32 guid, PlayerbotHolder* newHolder) override;
@@ -267,6 +271,7 @@ public:
         void MirrorAh();
     private:
         PlayerBotMap players;
+        ai::guild_bot_login::Protection guildLoginProtection;
         int processTicks;
         std::unordered_map<std::string, WorldLocation> namedLocations;
         std::map<uint8, std::vector<WorldLocation> > locsPerLevelCache;

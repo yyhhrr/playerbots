@@ -4,6 +4,24 @@
 
 namespace ai
 {
+    // Exercises the actual group-only chat command; "dead", "combat" and "chinese"
+    // prepare the relevant target state or select the UTF-8 alias.
+    class CommandDirectSummonSpawn : public TestCommand
+    {
+    public:
+        TestResult Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message) override;
+    protected:
+        std::string GetName() const override { return "direct summon spawn"; }
+    };
+
+    class CommandCheckDirectSummon : public TestCommand
+    {
+    public:
+        TestResult Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message) override;
+    protected:
+        std::string GetName() const override { return "check direct summon"; }
+    };
+
     // =====================================================
     // TeleportTests - cross-map summon / resurrect coverage (BL-14 .. BL-25)
     //

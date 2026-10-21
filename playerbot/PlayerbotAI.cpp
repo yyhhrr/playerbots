@@ -15,6 +15,7 @@
 #include "strategy/actions/EmoteAction.h"
 #include "strategy/actions/NeedRollCommand.h"
 #include "strategy/actions/QuestItemExchangeCommand.h"
+#include "strategy/actions/UseMeetingStoneAction.h"
 #include "strategy/values/LastSpellCastValue.h"
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -1747,6 +1748,16 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
 
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
+
+    // "过来" (UTF-8) is the same group-only command as "summon". Dispatch outside
+    // the reaction queue so casting, combat and an ongoing reaction cannot postpone it.
+    if (filtered == "summon" || filtered == "\xE8\xBF\x87\xE6\x9D\xA5")
+    {
+        SummonAction action(this);
+        Event event("summon", "", &fromPlayer);
+        action.Execute(event);
+        return;
+    }
 
     if (!manualQuestItemExchange && type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos && filtered.find("award") == std::string::npos)
     {

@@ -14,6 +14,8 @@ namespace ai
 
         static bool IsValid(Unit* target, Player* player);
         static bool IsReachable(Unit* target, Player* player);
+        // Shared by player selection, pet/guardian attackers, and current-target validation.
+        static bool IsAllowedArathiDefenderTarget(Unit* target, Player* player);
 
     private:
         void ApplyFilter(std::list<ObjectGuid>& targets, bool getOne);

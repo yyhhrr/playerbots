@@ -79,6 +79,7 @@ private:
     std::list<std::string> HandleSpoof(Player* master, const std::string param, AccountTypes security);
     std::list<std::string> HandleParty(Player* master, const std::string param, AccountTypes security);
     std::list<std::string> HandleGuild(Player* master, const std::string param, AccountTypes security);
+    std::list<std::string> HandleGuildLogin(Player* master, const std::string param, AccountTypes security);
     std::list<std::string> HandleRaid(Player* master, const std::string param, AccountTypes security);
     std::list<std::string> HandleRaidLeader(Player* master, const std::string param, AccountTypes security);
     std::list<std::string> HandleCreate(Player* master, const std::string param, AccountTypes security);

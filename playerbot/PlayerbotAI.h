@@ -18,6 +18,7 @@
 class Player;
 class PlayerbotMgr;
 class ChatHandler;
+namespace ai { class SummonAction; }
 
 using namespace ai;
 
@@ -434,6 +435,11 @@ public:
     // location before resurrecting it. The target accepts and does all of it on its own map thread.
     // Returns false if the target is alive, already has a pending request, or no rez spell resolves.
     static bool SendResurrectRequest(Player* summoner, Player* target, uint32 mapId, float x, float y, float z);
+
+    // Non-null only while a group-only direct summon is executing on the world thread.
+    // The core uses this exact map for entry checks and instance selection, without GM mode
+    // or changing the bot's saved instance bindings.
+    Map* GetDirectSummonMap() const { return directSummonMap; }
     std::string GetDefaultMovementStrategy();
     void EnsureDefaultMovementStrategy(Player* requester = nullptr);
 	std::string HandleRemoteCommand(std::string command);
@@ -755,6 +761,8 @@ public:
 #endif
 
 private:
+    friend class ai::SummonAction;
+    Map* directSummonMap = nullptr;
     bool UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned);
     void UpdateFaceTarget(uint32 elapsed, bool minimal);
 

@@ -58,6 +58,12 @@ void WarsongStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 {
     triggers.push_back(new TriggerNode(
         "bg active",
+        NextAction::array(0, new NextAction("bg warsong carry", 75.0f),
+            new NextAction("bg warsong regroup", 74.0f),
+            new NextAction("bg warsong objective", 5.0f), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "bg active",
         NextAction::array(0, new NextAction("bg check flag", 70.0f), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -74,18 +80,11 @@ void WarsongStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 
     triggers.push_back(new TriggerNode(
         "enemy flagcarrier near",
-        NextAction::array(0, new NextAction("attack enemy flag carrier", 80.0f), NULL)));
+        NextAction::array(0, new NextAction("attack enemy flag carrier", 79.0f), NULL)));
 
     triggers.push_back(new TriggerNode(
         "player has flag",
-        NextAction::array(0,
-            new NextAction("jump::position bg objective", 80.5f),
-            new NextAction("bg move to objective", 80.0f),
-            NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "player has flag",
-        NextAction::array(0, new NextAction("rocket boots", 81.0f), NULL)));
+        NextAction::array(0, new NextAction("rocket boots", 76.0f), NULL)));
 
     triggers.push_back(new TriggerNode(
         "very often",

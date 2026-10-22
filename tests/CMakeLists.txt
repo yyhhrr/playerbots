@@ -3,12 +3,33 @@ project(playerbots_tests LANGUAGES CXX)
 
 enable_testing()
 
-foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy)
+foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy warsong_policy warsong_combat)
     add_executable(${test_name}_test ${test_name}_test.cpp)
     target_include_directories(${test_name}_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
     target_compile_features(${test_name}_test PRIVATE cxx_std_20)
     add_test(NAME ${test_name} COMMAND ${test_name}_test)
 endforeach()
+
+# Exercise the actual hard-coded WSG routes with a deterministic movement driver.
+set(warsong_route_source "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/BattleGroundTactics.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${warsong_route_source}")
+file(READ "${warsong_route_source}" warsong_source)
+string(FIND "${warsong_source}" "Position const WS_WAITING_POS_HORDE_1" positions_begin)
+string(FIND "${warsong_source}" "Position const AB_WAITING_POS_HORDE" positions_end)
+string(FIND "${warsong_source}" "bool BGTactics::wsgPaths()" routes_begin)
+string(FIND "${warsong_source}" "// eots jump logic" routes_end)
+if(positions_begin LESS 0 OR positions_end LESS positions_begin OR routes_begin LESS 0 OR routes_end LESS routes_begin)
+    message(FATAL_ERROR "WSG route extraction markers are missing")
+endif()
+math(EXPR positions_length "${positions_end} - ${positions_begin}")
+math(EXPR routes_length "${routes_end} - ${routes_begin}")
+string(SUBSTRING "${warsong_source}" ${positions_begin} ${positions_length} warsong_positions)
+string(SUBSTRING "${warsong_source}" ${routes_begin} ${routes_length} warsong_routes)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/warsong_movement_source.inc" "${warsong_positions}\n${warsong_routes}")
+add_executable(warsong_movement_test warsong_movement_test.cpp)
+target_include_directories(warsong_movement_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(warsong_movement_test PRIVATE cxx_std_20)
+add_test(NAME warsong_movement COMMAND warsong_movement_test)
 
 # Compile the production recipe extractor with a minimal in-memory world store.
 # Copying preserves the source bytes while resolving core-only headers to test stubs.

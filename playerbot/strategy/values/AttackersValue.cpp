@@ -30,7 +30,8 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     {
         Unit* rtiTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "rti target"));
 
-        if (rtiTarget && rtiTarget->IsInWorld() && rtiTarget->GetMapId() == bot->GetMapId())
+        if (rtiTarget && rtiTarget->IsInWorld() && rtiTarget->GetMapId() == bot->GetMapId() &&
+            EnemyPlayersValue::IsAllowedWarsongTarget(rtiTarget, bot))
         {
             return { rtiTarget->GetObjectGuid() };
         }
@@ -161,6 +162,11 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     // Convert the targets to guids
     for (Unit* target : targets)
     {
+        // Controlled units are added after their owner was validated; validate
+        // each unit against the carrier's own immediate self-defense boundary.
+        if (!EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+            continue;
+
         result.push_back(target->GetObjectGuid());
     }
 
@@ -344,7 +350,8 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
 
     // Apply the flag boundary before separating player and NPC branches, so hostile
     // pets/guardians cannot keep a defender chasing after their distant owner.
-    if (!EnemyPlayersValue::IsAllowedArathiDefenderTarget(target, playerToCheckAgainst))
+    if (!EnemyPlayersValue::IsAllowedArathiDefenderTarget(target, playerToCheckAgainst) ||
+        !EnemyPlayersValue::IsAllowedWarsongTarget(target, playerToCheckAgainst))
         return false;
 
     // This will be used on both enemy player and npc checks

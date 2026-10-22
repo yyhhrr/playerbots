@@ -69,6 +69,9 @@ private:
     bool resetObjective();
     bool wsgPaths();
     bool wsgRoofJump();
+    bool refreshWarsongObjective();
+    bool moveWarsongObjective(bool carrierOnly, bool regroupOnly);
+    bool moveToWarsongPoint(uint32 mapId, float x, float y, float z, bool idle = false, bool react = false, bool noPath = false);
     bool eotsJump();
     bool atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<uint32> const& vFlagIds);
     bool CheckFlagAv();

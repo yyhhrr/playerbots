@@ -6,6 +6,7 @@
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/values/EnemyPlayerValue.h"
 
 using namespace ai;
 
@@ -260,6 +261,10 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
             ai->TellPlayerNoFacing(requester, "I have no target");
         }
 
+        return false;
+    }
+    else if (!EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+    {
         return false;
     }
     else if (sServerFacade.IsFriendlyTo(bot, target))

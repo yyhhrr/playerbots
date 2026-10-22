@@ -5,6 +5,10 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
+#include "playerbot/strategy/values/EnemyPlayerValue.h"
+#include "playerbot/WarsongCombat.h"
+#include "playerbot/WarsongTactics.h"
+#include "BattleGround/BattleGroundWS.h"
 
 bool DpsAssistAction::isUseful()
 {
@@ -25,7 +29,7 @@ bool AttackAnythingAction::isUseful()
 
     Unit* target = GetTarget();
 
-    if (!target || !ai->IsSafe(target))
+    if (!target || !ai->IsSafe(target) || !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
         return false;
 
     bool pinnedByOrder = ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) || ai->HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT);
@@ -91,14 +95,38 @@ bool ai::AttackAnythingAction::Execute(Event& event)
 
 bool AttackEnemyPlayerAction::isUseful()
 {
-    return !sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(bot));
+    return !sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(bot)) &&
+        EnemyPlayersValue::IsAllowedWarsongTarget(GetTarget(), bot);
 }
 
 bool AttackEnemyFlagCarrierAction::isUseful()
 {
-    PlayerbotAI* ai = bot->GetPlayerbotAI();
     Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("enemy flag carrier")->Get());
-    return target && sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.GetDistance2d(bot, target), 75.0f) && (bot->HasAura(23333) || bot->HasAura(23335) || bot->HasAura(34976));
+    BattleGround* battleground = bot->GetBattleGround();
+    if (battleground && bot->GetMapId() == 489)
+    {
+        if (warsong::GetTask(ai) != warsong::Task::Recover)
+            return false;
+
+        Player* enemy = dynamic_cast<Player*>(target);
+        if (!enemy || battleground->GetStatus() != STATUS_IN_PROGRESS ||
+            enemy->GetBattleGround() != battleground || enemy->GetMap() != bot->GetMap())
+            return false;
+
+        BattleGroundWS* warsongBattleGround = static_cast<BattleGroundWS*>(battleground);
+        const bool actualCarrier = warsongBattleGround->GetFlagCarrierGuid(GetTeamIndexByTeamId(bot->GetTeam())) == enemy->GetObjectGuid() &&
+            ((bot->GetTeam() == HORDE && enemy->HasAura(23333)) ||
+             (bot->GetTeam() == ALLIANCE && enemy->HasAura(23335)));
+        const bool validTarget = bot->IsAlive() && PossibleTargetsValue::IsValid(enemy, bot) &&
+            enemy->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true) &&
+            sServerFacade.IsWithinLOSInMap(bot, enemy) && EnemyPlayersValue::IsReachable(enemy, bot);
+        return warsong::CanPursueEnemyFlagCarrier(bot->HasAura(23333) || bot->HasAura(23335),
+            validTarget, actualCarrier, bot->GetDistance(enemy));
+    }
+
+    // Preserve the existing Eye of the Storm behavior in this first WSG change.
+    return target && sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.GetDistance2d(bot, target), 75.0f) &&
+        (bot->HasAura(23333) || bot->HasAura(23335) || bot->HasAura(34976));
 }
 
 bool SelectNewTargetAction::Execute(Event& event)

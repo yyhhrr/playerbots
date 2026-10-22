@@ -4,13 +4,46 @@
 #include "TargetValue.h"
 #include "PositionValue.h"
 #include "playerbot/ArathiBasinCombat.h"
+#include "playerbot/WarsongCombat.h"
+#include "playerbot/WarsongTactics.h"
 #include "BattleGround/BattleGroundAB.h"
+#include "BattleGround/BattleGroundWS.h"
 #include "BattleGround/BattleGroundMgr.h"
 
 using namespace ai;
 
 namespace
 {
+    BattleGroundWS* GetActiveWarsong(Player* player)
+    {
+        BattleGround* battleground = player ? player->GetBattleGround() : nullptr;
+        if (!battleground || battleground->GetStatus() != STATUS_IN_PROGRESS)
+            return nullptr;
+
+        BattleGroundTypeId type = battleground->GetTypeId();
+#ifdef MANGOSBOT_TWO
+        if (type == BATTLEGROUND_RB)
+            type = battleground->GetTypeId(true);
+#endif
+        return type == BATTLEGROUND_WS ? static_cast<BattleGroundWS*>(battleground) : nullptr;
+    }
+
+    bool IsDirectlyAttackingCarrier(Unit* enemy, Player* carrier)
+    {
+        if (enemy->GetVictim() == carrier)
+            return true;
+
+        for (CurrentSpellTypes type : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL, CURRENT_AUTOREPEAT_SPELL })
+        {
+            Spell* spell = enemy->GetCurrentSpell(type);
+            if (spell && spell->getState() != SPELL_STATE_FINISHED &&
+                spell->m_targets.getUnitTarget() == carrier)
+                return true;
+        }
+
+        return false;
+    }
+
     BattleGround* GetActiveArathiBattleGround(Player* player)
     {
         BattleGround* battleground = player ? player->GetBattleGround() : nullptr;
@@ -172,7 +205,7 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 return false;
             }
 
-            if (!IsAllowedArathiDefenderTarget(target, player))
+            if (!IsAllowedArathiDefenderTarget(target, player) || !IsAllowedWarsongTarget(target, player))
             {
                 return false;
             }
@@ -205,6 +238,43 @@ bool EnemyPlayersValue::IsAllowedArathiDefenderTarget(Unit* target, Player* play
     const bool playerControlled = target->GetObjectGuid().IsPlayer() ||
         target->GetMasterGuid().IsPlayer() || target->GetOwnerGuid().IsPlayer();
     return CanDefenderEngage(target, player, playerControlled);
+}
+
+bool EnemyPlayersValue::IsAllowedWarsongTarget(Unit* target, Player* player)
+{
+    BattleGroundWS* battleground = GetActiveWarsong(player);
+    if (!battleground)
+        return true;
+
+    const bool carrier = player->HasAura(23333) || player->HasAura(23335);
+    PlayerbotAI* ai = player->GetPlayerbotAI();
+    const bool escort = ai && warsong::GetTask(ai) == warsong::Task::Escort;
+    if (!carrier && !escort)
+        return true;
+
+    if (!target || !target->IsInWorld() || target->GetMap() != player->GetMap())
+        return false;
+
+    const float distance = player->GetDistance(target);
+    const bool directAttack = IsDirectlyAttackingCarrier(target, player);
+    if (carrier)
+        return warsong::CanEngageAsCarrier(true, distance, directAttack);
+
+    PositionMap& positions = ai->GetAiObjectContext()->GetValue<PositionMap&>("position")->Get();
+    const auto objective = positions.find("bg objective");
+    if (objective == positions.end() || !objective->second.isSet() || objective->second.mapId != player->GetMapId())
+        return true;
+
+    const ObjectGuid friendlyCarrierGuid = battleground->GetFlagCarrierGuid(
+        GetTeamIndexByTeamId(battleground->GetOtherTeam(player->GetTeam())));
+    Player* friendlyCarrier = player->GetMap()->GetPlayer(friendlyCarrierGuid);
+    if (!friendlyCarrier || !friendlyCarrier->IsAlive() || friendlyCarrier->GetTeam() != player->GetTeam() ||
+        friendlyCarrier->GetMap() != player->GetMap() || friendlyCarrier->IsBeingTeleported())
+        return true;
+
+    // The objective denotes this friendly carrier, whose live position prevents
+    // an old snapshot from leaving escorts defending a point the carrier has left.
+    return warsong::CanEngageAsEscort(true, true, friendlyCarrier->GetDistance(target), distance, directAttack);
 }
 
 bool EnemyPlayersValue::IsReachable(Unit* target, Player* player)
@@ -265,6 +335,19 @@ ObjectGuid EnemyPlayerValue::Calculate()
 
     Unit* bestEnemyPlayer = nullptr;
     std::list<ObjectGuid> enemyPlayers = AI_VALUE(std::list<ObjectGuid>, "enemy player targets");
+    // Flag pickup and an attacker's retreat must take effect immediately even if
+    // the enemy-player list was calculated before the bot started carrying.
+    if (GetActiveWarsong(bot))
+    {
+        for (auto it = enemyPlayers.begin(); it != enemyPlayers.end();)
+        {
+            Unit* target = ai->GetUnit(*it);
+            if (!target || !PossibleTargetsValue::IsValid(target, bot) || !EnemyPlayersValue::IsValid(target, bot))
+                it = enemyPlayers.erase(it);
+            else
+                ++it;
+        }
+    }
     if (!enemyPlayers.empty())
     {
         const bool isMelee = !ai->IsRanged(bot);

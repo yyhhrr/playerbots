@@ -58,7 +58,8 @@ void WarsongStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 {
     triggers.push_back(new TriggerNode(
         "bg active",
-        NextAction::array(0, new NextAction("bg warsong carry", 75.0f),
+        NextAction::array(0, new NextAction("bg warsong mobility", 77.0f),
+            new NextAction("bg warsong carry", 75.0f),
             new NextAction("bg warsong regroup", 74.0f),
             new NextAction("bg warsong objective", 5.0f), NULL)));
 

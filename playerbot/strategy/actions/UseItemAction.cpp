@@ -37,9 +37,15 @@ SpellCastResult BotUseItemSpell::ForceSpellStart(SpellCastTargets const* targets
     SpellEvent* Event = new SpellEvent(this);
     truecaster->m_events.AddEvent(Event, truecaster->m_events.CalculateTime(1));
 
-    SpellCastResult result = PreCastCheck();
+    // Also covers legacy consumable actions that construct BotUseItemSpell
+    // directly instead of passing through UseAction::UseItemInternal.
+    PlayerbotAI* casterAI = m_caster && m_caster->GetTypeId() == TYPEID_PLAYER ?
+        static_cast<Player*>(m_caster)->GetPlayerbotAI() : nullptr;
+    const bool carrierSafe = !casterAI ||
+        casterAI->IsSpellSafeForWarsong(m_spellInfo->Id, targets->getUnitTarget());
+    SpellCastResult result = carrierSafe ? PreCastCheck() : SPELL_FAILED_BAD_TARGETS;
     bool failed = result != SPELL_CAST_OK;
-    if (result == SPELL_FAILED_BAD_TARGETS && OpenLockCheck())
+    if (carrierSafe && result == SPELL_FAILED_BAD_TARGETS && OpenLockCheck())
     {
         failed = false;
         m_IsTriggeredSpell = true;
@@ -496,6 +502,8 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
     GameObject* gameObjectTarget = nullptr;
 
     uint8 successCasts = 0;
+    auto castItemSpells = [&](bool validateOnly)
+    {
     for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
     {
         // No spell
@@ -644,6 +652,13 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
                 continue;
             }
 
+            // Resolve every on-use spell before starting any of them, so a
+            // later unsafe effect cannot leave a spent, partly applied item.
+            if (!ai->IsSpellSafeForWarsong(spellInfo->Id, targets.getUnitTarget()))
+                return false;
+            if (validateOnly)
+                continue;
+
             // Use triggered flag only for items with many spell casts and for not first cast
             BotUseItemSpell* spell = new BotUseItemSpell(bot, spellInfo, (successCasts > 0) ? TRIGGERED_OLD_TRIGGERED : TRIGGERED_NONE);
             spell->m_clientCast = true;
@@ -711,6 +726,12 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
             }
         }
     }
+
+    return true;
+    };
+    if (!castItemSpells(true))
+        return false;
+    castItemSpells(false);
 
     if (successCasts > 0)
     {

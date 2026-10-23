@@ -4,6 +4,8 @@
 #include <iomanip>
 
 #include "playerbot/AiFactory.h"
+#include "playerbot/WarsongSpellPolicy.h"
+#include "playerbot/WarsongTactics.h"
 
 #include "MotionGenerators/MovementGenerator.h"
 #include "Grids/GridNotifiers.h"
@@ -4421,6 +4423,79 @@ bool PlayerbotAI::HasSpell(uint32 spellid) const
     return false;
 }
 
+bool PlayerbotAI::IsSpellSafeForWarsong(uint32 spellId, Unit* target) const
+{
+    // IsCarrier validates the live battleground and carrier GUID, including
+    // human carriers targeted by a friendly bot's protection spell.
+    const bool casterCarries = warsong::IsCarrier(bot);
+    if (!target)
+        target = bot;
+    const bool targetCarries = target->GetTypeId() == TYPEID_PLAYER &&
+        warsong::IsCarrier(static_cast<Player*>(target));
+    if (!casterCarries && !targetCarries)
+        return true;
+
+    auto describe = [this, target](uint32 id)
+    {
+        warsong::FlagSpellInfo result;
+        const SpellEntry* entry = sServerFacade.LookupSpellInfo(id);
+        if (!entry)
+            return result;
+        result.id = entry->Id;
+        result.immunityPurgesEffects = entry->HasAttribute(SPELL_ATTR_EX_IMMUNITY_PURGES_EFFECT);
+        for (unsigned i = 0; i < MAX_EFFECT_INDEX; ++i)
+        {
+            warsong::FlagSpellEffectInfo& effect = result.effects[i];
+            switch (entry->Effect[i])
+            {
+                case SPELL_EFFECT_APPLY_AURA:
+                case SPELL_EFFECT_APPLY_AREA_AURA_PARTY:
+                case SPELL_EFFECT_APPLY_AREA_AURA_PET:
+#ifndef MANGOSBOT_ZERO
+                case SPELL_EFFECT_APPLY_AREA_AURA_FRIEND:
+                case SPELL_EFFECT_APPLY_AREA_AURA_ENEMY:
+#endif
+                    effect.effect = warsong::FlagSpellEffect::Aura;
+                    break;
+                case SPELL_EFFECT_TRIGGER_SPELL:
+                case SPELL_EFFECT_TRIGGER_MISSILE:
+                    effect.effect = warsong::FlagSpellEffect::Trigger;
+                    break;
+                case SPELL_EFFECT_TELEPORT_UNITS:
+                case SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER:
+                    effect.effect = warsong::FlagSpellEffect::Teleport;
+                    break;
+                case SPELL_EFFECT_INSTAKILL:
+                    effect.effect = warsong::FlagSpellEffect::InstantKill;
+                    break;
+            }
+            switch (entry->EffectApplyAuraName[i])
+            {
+                case SPELL_AURA_MOD_STEALTH: effect.aura = warsong::FlagSpellAura::Stealth; break;
+                case SPELL_AURA_MOD_INVISIBILITY: effect.aura = warsong::FlagSpellAura::Invisibility; break;
+                case SPELL_AURA_FEIGN_DEATH: effect.aura = warsong::FlagSpellAura::FeignDeath; break;
+                case SPELL_AURA_MOUNTED: effect.aura = warsong::FlagSpellAura::Mount; break;
+                case SPELL_AURA_EFFECT_IMMUNITY: effect.aura = warsong::FlagSpellAura::EffectImmunity; break;
+                case SPELL_AURA_SCHOOL_IMMUNITY: effect.aura = warsong::FlagSpellAura::SchoolImmunity; break;
+            }
+
+            const uint32 targetA = entry->EffectImplicitTargetA[i];
+            const uint32 targetB = entry->EffectImplicitTargetB[i];
+            effect.recipients = warsong::NoRecipient;
+            if (targetA == TARGET_UNIT_CASTER || targetB == TARGET_UNIT_CASTER)
+                effect.recipients |= warsong::CasterRecipient;
+            if ((targetA && targetA != TARGET_UNIT_CASTER && targetA != TARGET_UNIT_CASTER_PET) ||
+                (targetB && targetB != TARGET_UNIT_CASTER && targetB != TARGET_UNIT_CASTER_PET) ||
+                (!targetA && !targetB))
+                effect.recipients |= warsong::TargetRecipient;
+            effect.positive = IsPositiveEffect(entry, SpellEffectIndex(i), bot, target);
+            effect.triggeredSpell = entry->EffectTriggerSpell[i];
+        }
+        return result;
+    };
+    return warsong::IsCarrierSpellSafe(describe(spellId), casterCarries, targetCarries, describe);
+}
+
 bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
     return CanCastSpell(aiObjectContext->GetValue<uint32>("spell id", name)->Get(), target, 0, true, itemTarget, ignoreRange, ignoreInCombat, ignoreMount, checkResult);
@@ -4428,6 +4503,13 @@ bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask,
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
+    if (!IsSpellSafeForWarsong(spellid, target))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        return false;
+    }
+
     if (!spellid)
     {
         if (checkResult)
@@ -4652,6 +4734,13 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effectMask, bool checkHasSpell, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
+    if (!IsSpellSafeForWarsong(spellid, bot))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        return false;
+    }
+
     if (!spellid)
     {
         if (checkResult)
@@ -4779,6 +4868,13 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effec
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, float x, float y, float z, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
+    if (!IsSpellSafeForWarsong(spellid, bot))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        return false;
+    }
+
     if (!spellid)
     {
         if (checkResult)
@@ -4916,6 +5012,9 @@ bool PlayerbotAI::CastSpell(std::string name, Unit* target, Item* itemTarget, bo
 
 bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
+    if (!IsSpellSafeForWarsong(spellId, target))
+        return false;
+
     if (!spellId)
         return false;
 
@@ -5155,6 +5254,9 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 
 bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
+    if (!IsSpellSafeForWarsong(spellId, bot))
+        return false;
+
     if (!spellId)
         return false;
 
@@ -5302,6 +5404,9 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
 
 bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
+    if (!IsSpellSafeForWarsong(spellId, bot))
+        return false;
+
     if (!spellId)
         return false;
 

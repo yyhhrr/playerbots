@@ -3,7 +3,7 @@ project(playerbots_tests LANGUAGES CXX)
 
 enable_testing()
 
-foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy warsong_policy warsong_combat)
+foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy warsong_policy warsong_combat warsong_carrier_policy warsong_carrier_abilities warsong_spell_policy)
     add_executable(${test_name}_test ${test_name}_test.cpp)
     target_include_directories(${test_name}_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
     target_compile_features(${test_name}_test PRIVATE cxx_std_20)

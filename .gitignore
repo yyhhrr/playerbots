@@ -75,6 +75,9 @@ tests
 !/tests/warsong_policy_test.cpp
 !/tests/warsong_combat_test.cpp
 !/tests/warsong_movement_test.cpp
+!/tests/warsong_carrier_policy_test.cpp
+!/tests/warsong_carrier_abilities_test.cpp
+!/tests/warsong_spell_policy_test.cpp
 
 # Generated files
 *.ncb

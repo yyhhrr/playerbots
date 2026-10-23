@@ -1,5 +1,8 @@
 #include "playerbot/playerbot.h"
 #include "WarsongTactics.h"
+#include "WarsongCarrierPolicy.h"
+#include "WarsongCarrierActions.h"
+#include "playerbot/AiFactory.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "BattleGround/BattleGroundWS.h"
@@ -19,6 +22,8 @@ namespace
     struct TeamPlan
     {
         Planner planner;
+        CarrierPlanner carriers;
+        CarrierSelection selection;
         Planner::Assignments assignments;
         Flag ownFlag;
         Flag enemyFlag;
@@ -103,6 +108,52 @@ namespace
         return first.state == second.state && first.carrier == second.carrier;
     }
 
+    std::vector<CarrierCandidate> CarrierCandidates(const std::vector<Player*>& players, const Flag& enemyFlag)
+    {
+        unsigned healers = 0;
+        for (Player* member : players)
+            if (member->IsAlive() && PlayerbotAI::IsHeal(member)) ++healers;
+        std::vector<CarrierCandidate> result;
+        for (Player* member : players)
+        {
+            PlayerbotAI* memberAI = member->GetPlayerbotAI();
+            if (!memberAI || memberAI->IsRealPlayer()) continue;
+            CarrierCandidate candidate;
+            candidate.guid = member->GetObjectGuid().GetRawValue();
+            candidate.alive = member->IsAlive();
+            candidate.eligible = member->CanUseBattleGroundObject() && memberAI->CanMove();
+            candidate.health = member->GetHealth();
+            candidate.maxHealth = member->GetMaxHealth();
+            candidate.distance = Distance(Location(member), enemyFlag.position);
+            const uint32 mana = member->GetMaxPower(POWER_MANA);
+            candidate.manaPercent = mana ? 100.0f * member->GetPower(POWER_MANA) / mana : 0.0f;
+            candidate.healer = PlayerbotAI::IsHeal(member);
+            candidate.soleHealer = candidate.healer && healers <= 1;
+            candidate.underPressure = !member->getAttackers().empty();
+            const auto abilities = InspectCarrierAbilities(memberAI);
+            candidate.mobilityReady = abilities.mobilityReady;
+            candidate.defenseReady = abilities.defenseReady;
+            switch (member->getClass())
+            {
+            case CLASS_DRUID: candidate.carrierClass = CarrierClass::Druid; break;
+            case CLASS_MAGE:
+                if (AiFactory::GetPlayerSpecTab(member) == 2) candidate.carrierClass = CarrierClass::FrostMage;
+                break;
+            case CLASS_ROGUE: candidate.carrierClass = CarrierClass::Rogue; break;
+            case CLASS_WARRIOR: candidate.carrierClass = CarrierClass::Warrior; break;
+            case CLASS_PALADIN: candidate.carrierClass = CarrierClass::Paladin; break;
+            default: break;
+            }
+            if (Item* shield = member->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+                candidate.hasShield = shield->GetProto()->InventoryType == INVTYPE_SHIELD;
+            for (Player* support : players)
+                if (support != member && support->IsAlive() && PlayerbotAI::IsHeal(support) &&
+                    member->IsWithinDistInMap(support, 40.0f)) candidate.hasHealerSupport = true;
+            result.push_back(candidate);
+        }
+        return result;
+    }
+
     TeamPlan& Refresh(Player* bot, BattleGroundWS* bg, const Flag& ownFlag, const Flag& enemyFlag)
     {
         const uint32 now = WorldTimer::getMSTime();
@@ -120,15 +171,20 @@ namespace
             return plan;
 
         std::vector<Member> members;
+        std::vector<Player*> players;
         for (const auto& ref : bot->GetMap()->GetPlayers())
         {
             Player* member = ref.getSource();
             if (!member || !member->IsInWorld() || member->IsBeingTeleported() || member->GetTeam() != bot->GetTeam()) continue;
             PlayerbotAI* memberAI = member->GetPlayerbotAI();
+            players.push_back(member);
             members.push_back({member->GetObjectGuid().GetRawValue(), Location(member), memberAI && !memberAI->IsRealPlayer(),
                 member->IsAlive(), memberAI && memberAI->IsHeal(member), member->IsInCombat()});
         }
-        plan.assignments = plan.planner.Update(ownFlag, enemyFlag, members, now);
+        plan.selection = plan.carriers.Update(CarrierCandidates(players, enemyFlag), now,
+            enemyFlag.state == FlagState::Carried ? enemyFlag.carrier : 0);
+        const std::vector<uint64_t> runners = {plan.selection.primary, plan.selection.backup};
+        plan.assignments = plan.planner.Update(ownFlag, enemyFlag, members, now, runners);
         plan.ownFlag = ownFlag;
         plan.enemyFlag = enemyFlag;
         plan.updated = now;
@@ -208,9 +264,41 @@ bool CanUseFlag(PlayerbotAI* ai, GameObject* flag)
     const uint32 ownDrop = alliance ? GO_WS_SILVERWING_FLAG_DROP : GO_WS_WARSONG_FLAG_DROP;
     if (flag->GetEntry() == ownBase) return IsCarrier(bot) && FlagStateValue(bg, bot->GetTeam()) == BG_WS_FLAG_STATE_ON_BASE;
     if (flag->GetEntry() == ownDrop) return FlagStateValue(bg, bot->GetTeam()) == BG_WS_FLAG_STATE_ON_GROUND;
-    if (IsCarrier(bot) || GetTask(ai) != Task::Attack || !bot->CanUseBattleGroundObject()) return false;
+    if (IsCarrier(bot) || !bot->CanUseBattleGroundObject()) return false;
     const int32 state = FlagStateValue(bg, bg->GetOtherTeam(bot->GetTeam()));
-    return state == BG_WS_FLAG_STATE_ON_BASE || state == BG_WS_FLAG_STATE_ON_GROUND;
+    if (state != BG_WS_FLAG_STATE_ON_BASE && state != BG_WS_FLAG_STATE_ON_GROUND) return false;
+    const bool dropped = state == BG_WS_FLAG_STATE_ON_GROUND;
+    // Every nearby role may save a dropped flag. At the base, ordinary attack
+    // members can approach, but the nominated available runners get first click.
+    CarrierSelection selection;
+    {
+        std::lock_guard<std::mutex> lock(plansMutex);
+        const auto plan = plans.find({bot->GetMapId(), bot->GetInstanceId(), bot->GetTeam()});
+        if (plan != plans.end()) selection = plan->second.selection;
+    }
+    const uint64 botGuid = bot->GetObjectGuid().GetRawValue();
+    if (!dropped && GetTask(ai) != Task::Attack &&
+        botGuid != selection.primary && botGuid != selection.backup) return false;
+    if (!bot->IsWithinDistInMap(flag, INTERACTION_DISTANCE)) return true;
+    selection.carrier = 0; // The live flag state above supersedes an old carrier snapshot.
+    std::vector<PickupCandidate> candidates;
+    for (const auto& ref : bot->GetMap()->GetPlayers())
+    {
+        Player* member = ref.getSource();
+        if (!member || !member->IsInWorld() || member->IsBeingTeleported() || member->GetTeam() != bot->GetTeam() ||
+            !member->IsAlive() || !member->IsWithinDistInMap(flag, INTERACTION_DISTANCE)) continue;
+        PlayerbotAI* memberAI = member->GetPlayerbotAI();
+        if (!memberAI || memberAI->IsRealPlayer()) continue;
+        // WSG flags use battleground rules rather than generic GO faction reaction.
+        // The enemy flag must remain usable even when CanInteract reports hostility.
+        const bool eligible = member->CanUseBattleGroundObject() && memberAI->CanMove() &&
+            !member->IsNonMeleeSpellCasted(false) && sServerFacade.IsWithinLOSInMap(member, flag) &&
+            (dropped || GetTask(memberAI) == Task::Attack ||
+                member->GetObjectGuid().GetRawValue() == selection.primary ||
+                member->GetObjectGuid().GetRawValue() == selection.backup);
+        candidates.push_back({member->GetObjectGuid().GetRawValue(), member->GetDistance(flag), eligible});
+    }
+    return SelectFlagPicker(selection, candidates, dropped, INTERACTION_DISTANCE) == bot->GetObjectGuid().GetRawValue();
 }
 }
 }

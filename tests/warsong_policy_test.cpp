@@ -255,5 +255,22 @@ int main()
             Check(entry.second.route == before.at(entry.first).route, "clear preserves deterministic routes");
     }
 
+    {
+        Planner planner;
+        Flag base;
+        const auto members = std::vector<Member>{Bot(1, 0), Bot(2, 10), Bot(3, 20), Bot(4, 30)};
+        const auto plan = planner.Update(Carried(99, 5), base, members, 0, {1, 2});
+        Check(plan.at(1).task == Task::Attack && plan.at(2).task == Task::Attack,
+            "primary and backup runners are reserved before recovery assignments");
+        Check(Count(plan, Task::Recover) >= 1, "runner reservations still leave a recovery group");
+        const auto live = planner.Update(base, Carried(3, 20), members, 100, {1, 2});
+        Check(live.at(3).task == Task::Carry, "actual carrier replaces all advance nominations");
+        Check(Count(live, Task::Escort) == 2, "advance nominations do not consume live escorts");
+        Planner small;
+        const auto two = small.Update(Carried(99, 5), base, {Bot(1, 0), Bot(2, 10)}, 0, {1, 2});
+        Check(two.at(1).task == Task::Attack && two.at(2).task == Task::Recover,
+            "two-member team keeps recovery instead of reserving both as runners");
+    }
+
     std::cout << checks << " Warsong policy checks passed\n";
 }

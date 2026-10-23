@@ -35,6 +35,7 @@
 #include "TravelAction.h"
 #include "RtiAction.h"
 #include "BattleGroundTactics.h"
+#include "playerbot/WarsongCarrierActions.h"
 #include "CheckMountStateAction.h"
 #include "ChangeTalentsAction.h"
 #include "AutoLearnSpellAction.h"
@@ -267,6 +268,7 @@ namespace ai
             creators["attack enemy flag carrier"] = [](PlayerbotAI* ai) { return new AttackEnemyFlagCarrierAction(ai); };
             creators["bg check flag"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "check flag"); };
             creators["bg warsong carry"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong carry"); };
+            creators["bg warsong mobility"] = [](PlayerbotAI* ai) { return new WarsongCarrierMobilityAction(ai); };
             creators["bg warsong regroup"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong regroup"); };
             creators["bg warsong objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong objective"); };
 

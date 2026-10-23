@@ -710,6 +710,20 @@ bool CastItemTargetAction::Execute(Event& event)
     else
         targets.m_targetMask = TARGET_FLAG_SELF;
 
+    // Validate the whole on-use list before the first cast, including item-cheat
+    // casts that have no Item instance for BotUseItemSpell to inspect.
+    for (const auto& itemSpell : proto->Spells)
+    {
+#ifdef MANGOSBOT_ZERO
+        const bool onUse = itemSpell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE ||
+            itemSpell.SpellTrigger == ITEM_SPELLTRIGGER_ON_NO_DELAY_USE;
+#else
+        const bool onUse = itemSpell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE;
+#endif
+        if (onUse && itemSpell.SpellId && !ai->IsSpellSafeForWarsong(itemSpell.SpellId, target))
+            return false;
+    }
+
     // use triggered flag only for items with many spell casts and for not first cast
     int count = 0;
 

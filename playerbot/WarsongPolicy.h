@@ -67,7 +67,7 @@ namespace ai
             using Assignments = std::map<uint64_t, Assignment>;
 
             const Assignments& Update(const Flag& ownFlag, const Flag& enemyFlag,
-                const std::vector<Member>& members, uint32_t now)
+                const std::vector<Member>& members, uint32_t now, const std::vector<uint64_t>& flagRunners = {})
             {
                 const bool changed = !ready || ownState != ownFlag.state || enemyState != enemyFlag.state ||
                     ownCarrier != ownFlag.carrier || enemyCarrier != enemyFlag.carrier;
@@ -107,6 +107,21 @@ namespace ai
                 const auto carrier = bots.find(enemyFlag.carrier);
                 if (escorting && carrier != bots.end())
                     Put(carrier->first, Task::Carry, previous, now);
+
+                if (!escorting)
+                {
+                    // Reserve the nominated runners before selecting recoverers.
+                    // A small team must still keep someone to return its own flag.
+                    const unsigned limit = recovering && bots.size() > 1 ?
+                        std::min(2u, unsigned(bots.size() - 1)) : 2u;
+                    unsigned reserved = 0;
+                    for (uint64_t guid : flagRunners)
+                        if (reserved < limit && bots.count(guid) && !assignments.count(guid))
+                        {
+                            Put(guid, Task::Attack, previous, now);
+                            ++reserved;
+                        }
+                }
 
                 const unsigned available = unsigned(bots.size() - assignments.size());
                 unsigned escorts = 0;

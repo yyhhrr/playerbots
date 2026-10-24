@@ -214,10 +214,20 @@ namespace ai::enchanting
         if (found != requirements.end())
             return found->second;
         const auto bounds = sSpellMgr.GetSkillLineAbilityMapBoundsBySpellId(spellId);
+        bool professionRecipe = false;
         for (auto it = bounds.first; it != bounds.second; ++it)
+        {
             if (it->second && it->second->skillId == SKILL_ENCHANTING)
-                return UnknownRequiredSkill;
-        return 0;
+            {
+                professionRecipe = true;
+                // Starting recipes are granted with the profession itself and
+                // have no trainer/recipe-item row. Other classic req=1 rows
+                // still need the real learning metadata gathered above.
+                if (it->second->learnOnGetSkill != 0 && it->second->req_skill_value == 1)
+                    return 1;
+            }
+        }
+        return professionRecipe ? UnknownRequiredSkill : 0;
     }
 
     bool CanApplyEnchantment(Player* caster, Item* item, const SpellEntry* spell)

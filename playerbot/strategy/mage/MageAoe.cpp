@@ -132,12 +132,14 @@ bool ai::FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& resul
         if (!seen.insert(guid).second)
             continue;
         Unit* target = ai->GetUnit(guid);
+        // The attackers list already validates combat against the bot or its group.
+        // Requiring personal threat again prevents AOE from starting on tank-held packs.
         if (!target || !ai->IsSafe(target) || !target->IsAlive() ||
             target->HasBreakableByDamageCrowdControlAura() ||
             target->IsAOEImmune() || target->IsTaxiFlying() ||
             (target->IsCreature() && static_cast<Creature*>(target)->IsTotem()) ||
             !bot->CanAttackSpell(target, spell, true) ||
-            !PossibleAttackTargetsValue::IsValid(target, bot, maxRange + radius, true) ||
+            !PossibleAttackTargetsValue::IsValid(target, bot, maxRange + radius, true, false) ||
             target->IsImmuneToDamage(GetSpellSchoolMask(spell)))
             continue;
 

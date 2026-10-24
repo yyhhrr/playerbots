@@ -3,40 +3,12 @@
 #include "MageTriggers.h"
 #include "MageActions.h"
 #include "MageAoe.h"
-#include <set>
 
 using namespace ai;
 
-namespace
-{
-    Unit* FindMeleeAoeTarget(PlayerbotAI* ai, bool levelingOnly = false)
-    {
-        Player* bot = ai->GetBot();
-        std::set<ObjectGuid> nearby;
-        Unit* spellTarget = nullptr;
-        const std::list<ObjectGuid> targets = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get();
-        for (const ObjectGuid& guid : targets)
-        {
-            Unit* target = ai->GetUnit(guid);
-            if (target && !target->IsPlayer() && target->IsAlive() &&
-                bot->IsWithinDistInMap(target, ATTACK_DISTANCE))
-            {
-                if (!spellTarget)
-                    spellTarget = target;
-
-                nearby.insert(guid);
-                if (levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), nearby.size()) : HasMageAoeTargetCount(nearby.size()))
-                    return spellTarget;
-            }
-        }
-
-        return nullptr;
-    }
-}
-
 Unit* LevelingArcaneExplosionTrigger::GetTarget()
 {
-    return bot->getClass() == CLASS_MAGE && bot->GetLevel() < 60 ? FindMeleeAoeTarget(ai, true) : nullptr;
+    return FindMageArcaneExplosionTarget(ai, true);
 }
 
 bool MageGroundAoeTrigger::IsActive()
@@ -48,7 +20,7 @@ bool MageGroundAoeTrigger::IsActive()
 bool MageArcaneExplosionAoeTrigger::IsActive()
 {
     Trigger* tooClose = context->GetTrigger("enemy too close for spell");
-    return FindMeleeAoeTarget(ai) && tooClose && tooClose->IsActive();
+    return FindMageArcaneExplosionTarget(ai) && tooClose && tooClose->IsActive();
 }
 
 bool AnyMageArmorTrigger::IsActive()

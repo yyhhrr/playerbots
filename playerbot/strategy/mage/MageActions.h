@@ -1,4 +1,5 @@
 #pragma once
+#include "MageAoe.h"
 
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/actions/GenericActions.h"
@@ -340,10 +341,31 @@ namespace ai
         CastColdSnapAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "cold snap") {}
     };
 
-    class CastArcaneExplosionAction : public CastMeleeAoeSpellAction
+    class CastArcaneExplosionAction : public CastSpellAction
     {
     public:
-        CastArcaneExplosionAction(PlayerbotAI* ai) : CastMeleeAoeSpellAction(ai, "arcane explosion", 10.0f) {}
+        CastArcaneExplosionAction(PlayerbotAI* ai) : CastSpellAction(ai, "arcane explosion") {}
+        bool isPossible() override
+        {
+            // The generic precheck rejects hostile spells aimed at the caster.
+            // Validate against a hittable enemy without imposing melee reach.
+            Unit* target = FindMageArcaneExplosionTarget(ai);
+            return target && ai->CanCastSpell(GetSpellName(), target, 0, nullptr, true);
+        }
+        bool isUseful() override
+        {
+            return CastSpellAction::isUseful() && FindMageArcaneExplosionTarget(ai);
+        }
+        bool Execute(Event& event) override
+        {
+            // The pack may have moved or been controlled after the trigger fired.
+            return FindMageArcaneExplosionTarget(ai) && CastSpellAction::Execute(event);
+        }
+
+    protected:
+        Unit* GetTarget() override { return bot; }
+        std::string GetTargetName() override { return "self target"; }
+        std::string GetReachActionName() override { return ""; }
     };
 
     class CastLevelingArcaneExplosionAction : public CastArcaneExplosionAction
@@ -351,13 +373,11 @@ namespace ai
     public:
         CastLevelingArcaneExplosionAction(PlayerbotAI* ai) : CastArcaneExplosionAction(ai) {}
         std::string getName() override { return "leveling arcane explosion"; }
-        bool isUseful() override { return bot->GetLevel() < 60 && CastSpellAction::isUseful(); }
-
-    protected:
-        Unit* GetTarget() override
+        bool isPossible() override { return bot->GetLevel() < 60 && CastArcaneExplosionAction::isPossible(); }
+        bool isUseful() override { return bot->GetLevel() < 60 && CastArcaneExplosionAction::isUseful(); }
+        bool Execute(Event& event) override
         {
-            Trigger* trigger = context->GetTrigger("leveling arcane explosion");
-            return trigger ? trigger->GetTarget() : nullptr;
+            return bot->GetLevel() < 60 && CastArcaneExplosionAction::Execute(event);
         }
     };
 

@@ -236,3 +236,75 @@ bool ai::FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& resul
 
     return result.targets.size() >= MAGE_GROUND_AOE_MIN_TARGETS;
 }
+
+Unit* ai::FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!bot || bot->getClass() != CLASS_MAGE || !bot->IsAlive() ||
+        !bot->IsInWorld() || bot->IsBeingTeleported() || (levelingOnly && bot->GetLevel() >= 60))
+        return nullptr;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    const uint32 spellId = context->GetValue<uint32>("spell id", "arcane explosion")->Get();
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    if (!spell)
+        return nullptr;
+
+    const float radius = GetDamageRadius(bot, spell);
+    if (radius <= 0.0f)
+        return nullptr;
+    const float countRadius = std::min(MageArcaneExplosionRadius, radius);
+    const bool ignoreLos = spell->HasAttribute(SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT);
+    const Point center = GetPoint(bot);
+
+    std::set<ObjectGuid> seen;
+    Unit* spellTarget = nullptr;
+    size_t count = 0;
+    // Combat against the group counts too; Frost Nova roots must not hide the pack.
+    const std::list<ObjectGuid> attackers = context->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+    for (const ObjectGuid& guid : attackers)
+    {
+        if (!seen.insert(guid).second)
+            continue;
+        Unit* target = ai->GetUnit(guid);
+        if (!target || !ai->IsSafe(target) || target->IsPlayer() || !target->IsAlive() ||
+            target->HasBreakableByDamageCrowdControlAura() || target->IsAOEImmune() || target->IsTaxiFlying() ||
+            (target->IsCreature() && static_cast<Creature*>(target)->IsTotem()) ||
+            !bot->CanAttackSpell(target, spell, true) ||
+            !PossibleAttackTargetsValue::IsValid(target, bot, countRadius, true, false) ||
+            target->IsImmuneToDamage(GetSpellSchoolMask(spell)) || !CanHit(bot, center, target, countRadius, ignoreLos))
+            continue;
+
+        bool immune = false;
+        for (uint32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; ++i)
+        {
+            if (spell->Effect[i] == SPELL_EFFECT_SCHOOL_DAMAGE &&
+                (target->IsImmuneToSpell(spell, false, uint8(1 << i), bot) ||
+                 target->IsImmuneToSpellEffect(spell, SpellEffectIndex(i), false)))
+                immune = true;
+        }
+        if (immune)
+            continue;
+
+        if (!spellTarget)
+            spellTarget = target;
+        ++count;
+    }
+    if (!(levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), count) : HasMageAoeTargetCount(count)))
+        return nullptr;
+
+    // Scan live world units independently of combat/CC target lists and raid marks.
+    // This also protects a sheep that was never part of this bot's attackers list.
+    std::list<Unit*> nearby;
+    MaNGOS::AnyUnitInObjectRangeCheck check(bot, radius);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnitInObjectRangeCheck> searcher(nearby, check);
+    Cell::VisitAllObjects(bot, searcher, radius);
+    for (Unit* target : nearby)
+    {
+        if (target && target->IsAlive() && target->HasBreakableByDamageCrowdControlAura() &&
+            bot->CanAttackSpell(target, spell, true) && CanHit(bot, center, target, radius, ignoreLos))
+            return nullptr;
+    }
+
+    return spellTarget;
+}

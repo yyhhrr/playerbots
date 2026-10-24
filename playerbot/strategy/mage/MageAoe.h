@@ -18,4 +18,7 @@ namespace ai
     // Count and cast at the same spell-specific, visible ground location.
     bool FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& result,
         bool avoidExistingFlamestrike = false);
+
+    // Recheck the caster-centred explosion, including nearby crowd control.
+    Unit* FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly = false);
 }

@@ -5,6 +5,7 @@
 namespace ai
 {
     constexpr std::size_t MageAoeMinimumTargets = 3;
+    constexpr float MageArcaneExplosionRadius = 10.0f;
 
     inline bool HasMageAoeTargetCount(std::size_t count)
     {

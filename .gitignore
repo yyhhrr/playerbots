@@ -78,6 +78,12 @@ tests
 !/tests/warsong_carrier_policy_test.cpp
 !/tests/warsong_carrier_abilities_test.cpp
 !/tests/warsong_spell_policy_test.cpp
+!/tests/mage_aoe_targeting_test.cpp
+!/tests/enchanting_policy_test.cpp
+!/tests/enchanting_exchange_test.cpp
+!/tests/enchanting_runtime_test.cpp
+!/tests/enchanting_stubs/
+!/tests/enchanting_stubs/**
 
 # Generated files
 *.ncb

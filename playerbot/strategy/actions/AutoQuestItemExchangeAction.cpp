@@ -1,5 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "AutoQuestItemExchangeAction.h"
+#include "playerbot/Enchanting.h"
 #include "playerbot/QuestItemExchange.h"
 #include "playerbot/ServerFacade.h"
 
@@ -358,6 +359,12 @@ bool AutoQuestItemExchangeAction::Redeem(const QuestItemExchangePlan& plan, bool
     {
         if (Item* item = bot->GetItemByGuid(reward.guid))
         {
+            // The exchange equips rewards directly, outside the inventory-upgrade scan.
+            // Only add an enchant after the exchange has committed successfully.
+            if (sPlayerbotAIConfig.autoEnchantUpgradeLoot && item->IsEquipped() &&
+                item->GetSlot() == reward.slot && !item->GetEnchantmentId(PERM_ENCHANTMENT_SLOT))
+                enchanting::EnchantItem(ai, item);
+
             bot->SendNewItem(item, 1, true, false);
         }
     }

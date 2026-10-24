@@ -29,6 +29,7 @@
 #include "Spells/SpellAuras.h"
 #include "Spells/SpellMgr.h"
 #include "PlayerbotDbStore.h"
+#include "Enchanting.h"
 #include "strategy/values/PositionValue.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/TravelMgr.h"
@@ -4701,6 +4702,14 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
     spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get());
     spell->m_targets.setItemTarget(spell->GetCastItem());
 
+    if (!ai::enchanting::CanApplyEnchantment(bot, spell->m_targets.getItemTarget(), spellInfo))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        delete spell;
+        return false;
+    }
+
     SpellCastResult result = spell->CheckCast(true);
     delete spell;
 	//if (oldSel)
@@ -4836,6 +4845,14 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, GameObject* goTarget, uint8 effec
     spell->SetCastItem(aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get());
     spell->m_targets.setItemTarget(spell->GetCastItem());
 
+    if (!ai::enchanting::CanApplyEnchantment(bot, spell->m_targets.getItemTarget(), spellInfo))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        delete spell;
+        return false;
+    }
+
     SpellCastResult result = spell->CheckCast(true);
     delete spell;
     //if (oldSel)
@@ -4950,6 +4967,14 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, float x, float y, float z, uint8 
     spell->m_targets.setDestination(x, y, z);
     spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get());
     spell->m_targets.setItemTarget(spell->GetCastItem());
+
+    if (!ai::enchanting::CanApplyEnchantment(bot, spell->m_targets.getItemTarget(), spellInfo))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        delete spell;
+        return false;
+    }
 
     SpellCastResult result = spell->CheckCast(true);
     delete spell;
@@ -5078,6 +5103,13 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
     {
         spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get());
         targets.setItemTarget(spell->GetCastItem());
+
+        if (!ai::enchanting::CanApplyEnchantment(bot, targets.getItemTarget(), pSpellInfo))
+        {
+            delete spell;
+            bot->SetSelectionGuid(oldSel);
+            return false;
+        }
 
         if (bot->GetTradeData())
         {
@@ -5321,6 +5353,12 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
     spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get());
     targets.setItemTarget(spell->GetCastItem());
 
+    if (!ai::enchanting::CanApplyEnchantment(bot, targets.getItemTarget(), pSpellInfo))
+    {
+        delete spell;
+        return false;
+    }
+
     if (goTarget->GetGoType() == GAMEOBJECT_TYPE_CHEST)
     {
         auto context = GetAiObjectContext();
@@ -5461,6 +5499,13 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
     {
         spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get());
         targets.setItemTarget(spell->GetCastItem());
+
+        if (!ai::enchanting::CanApplyEnchantment(bot, targets.getItemTarget(), pSpellInfo))
+        {
+            delete spell;
+            bot->SetSelectionGuid(oldSel);
+            return false;
+        }
 
         if (bot->GetTradeData())
         {
@@ -8763,7 +8808,7 @@ void PlayerbotAI::EnchantItemT(uint32 spellid, uint8 slot, Item* item)
    if (!pItem)
     return;
 
-   if (pItem->GetSlot() != slot)
+   if (!pItem->IsEquipped() || pItem->GetSlot() != slot || pItem->GetOwner() != bot)
        return;
 
 #ifdef CMANGOS
@@ -8779,19 +8824,13 @@ void PlayerbotAI::EnchantItemT(uint32 spellid, uint8 slot, Item* item)
    if (!spellInfo)
       return;
 
-   uint32 enchantid = spellInfo->EffectMiscValue[0];
+   if (!ai::enchanting::CanApplyEnchantment(bot, pItem, spellInfo))
+       return;
+
+   uint32 enchantid = ai::enchanting::GetEnchantmentId(spellInfo);
    if (!enchantid)
    {
       sLog.outError("%u: Invalid enchantid %s %s" , enchantid , " report to devs", bot->GetName());
-      return;
-   }
-
-   if (!((1 << pItem->GetProto()->SubClass) & spellInfo->EquippedItemSubClassMask) &&
-      !((1 << pItem->GetProto()->InventoryType) & spellInfo->EquippedItemInventoryTypeMask))
-   {
-
-      sLog.outError("%s: items could not be enchanted, wrong item type equipped", bot->GetName());
-
       return;
    }
 

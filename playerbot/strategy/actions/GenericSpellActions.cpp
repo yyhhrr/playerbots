@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
+#include "playerbot/Enchanting.h"
 
 using namespace ai;
 
@@ -720,8 +721,13 @@ bool CastItemTargetAction::Execute(Event& event)
 #else
         const bool onUse = itemSpell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE;
 #endif
-        if (onUse && itemSpell.SpellId && !ai->IsSpellSafeForWarsong(itemSpell.SpellId, target))
-            return false;
+        if (onUse && itemSpell.SpellId)
+        {
+            const SpellEntry* spellInfo = sServerFacade.LookupSpellInfo(itemSpell.SpellId);
+            if (!ai->IsSpellSafeForWarsong(itemSpell.SpellId, target) ||
+                !ai::enchanting::CanApplyEnchantment(bot, targets.getItemTarget(), spellInfo))
+                return false;
+        }
     }
 
     // use triggered flag only for items with many spell casts and for not first cast

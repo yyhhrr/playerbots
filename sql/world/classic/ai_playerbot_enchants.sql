@@ -307,7 +307,7 @@ INSERT INTO `ai_playerbot_enchants` (`class`, `spec`, `spellid`, `slotid`, `name
 	(11, 110, 22844, 6, 'Legs Arcanum of Focus'),
 	(11, 110, 25084, 14, 'Enchant Cloak - Subtlety'),
 	(11, 110, 29467, 2, 'Shoulders Power of the Scourge'),
-	(11, 110, 33994, 9, 'Increase Spell by 15 and 1%'),
+	(11, 110, 25079, 9, 'Enchant Gloves - Healing Power'),
 	(11, 111, 13700, 10, 'Ring +2 All Stats'),
 	(11, 111, 13700, 11, 'Ring +2 All Stats'),
 	(11, 111, 13882, 14, 'Enchant Cloak - Lesser Agility'),

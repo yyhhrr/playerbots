@@ -19,7 +19,5 @@ namespace ai
        
         void EnchantItem(Item* item);
 
-    private:
-        std::vector<EnchantTemplate> enchants;
     };
 }

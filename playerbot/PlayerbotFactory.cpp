@@ -12,6 +12,7 @@
 #include "RandomPlayerbotFactory.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/AiFactory.h"
+#include "playerbot/Enchanting.h"
 #include "Guilds/GuildMgr.h"
 
 #ifndef MANGOSBOT_ZERO
@@ -262,12 +263,6 @@ void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
 
     pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Equip");
     sLog.outDetail("Initializing equipmemt...");
-    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
-    {
-        sLog.outDetail("Initializing enchant templates...");
-        LoadEnchantContainer();
-    }
-
     InitEquipment(incremental, syncWithMaster);
     InitGems();
     pmo.reset();
@@ -3799,15 +3794,7 @@ void PlayerbotFactory::InitBags()
 
 void PlayerbotFactory::EnchantItem(Item* item)
 {
-    if (!item)
-        return;
-
-    if (bot->GetLevel() < sPlayerbotAIConfig.minEnchantingBotLevel)
-        return;
-
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-    uint32 tempId = uint32((uint32)bot->getClass() * (uint32)10);
-    ApplyEnchantTemplate(tempId += (uint32)tab, item);
+    ai::enchanting::EnchantItem(ai, item, true);
 }
 
 void PlayerbotFactory::AddGems(Item* item)
@@ -5347,114 +5334,9 @@ void PlayerbotFactory::InitArenaTeam()
 
 void PlayerbotFactory::EnchantEquipment()
 {
-    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
-    {
-        if (m_EnchantContainer.empty())
-        {
-            LoadEnchantContainer();
-        }
-
-        for (uint8 slot = 0; slot < SLOT_EMPTY; slot++)
-        {
-            Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
-            if (item)
-            {
-                EnchantItem(item);
-            }
-        }
-    }
-}
-
-void PlayerbotFactory::ApplyEnchantTemplate()
-{
-   int tab = AiFactory::GetPlayerSpecTab(bot);
-
-   switch (bot->getClass())
-   {
-   case CLASS_WARRIOR:
-      if (tab == 2)
-          ApplyEnchantTemplate(12);
-      else if (tab == 1)
-          ApplyEnchantTemplate(11);
-      else
-          ApplyEnchantTemplate(10);
-      break;
-   case CLASS_DRUID:
-      if (tab == 2)
-          ApplyEnchantTemplate(112);
-      else if (tab == 0)
-          ApplyEnchantTemplate(110);
-      else
-          ApplyEnchantTemplate(111);
-      break;
-   case CLASS_SHAMAN:
-      if (tab == 0)
-         ApplyEnchantTemplate(70);
-      else if (tab == 2)
-         ApplyEnchantTemplate(71);
-      else
-         ApplyEnchantTemplate(72);
-      break;
-   case CLASS_PALADIN:
-      if (tab == 0)
-         ApplyEnchantTemplate(20);
-      else if (tab == 2)
-         ApplyEnchantTemplate(22);
-      else if (tab == 1)
-         ApplyEnchantTemplate(21);
-      break;
-   case CLASS_HUNTER:
-      ApplyEnchantTemplate(30);
-      break;
-   case CLASS_ROGUE:
-      ApplyEnchantTemplate(40);
-      break;
-   case CLASS_MAGE:
-      ApplyEnchantTemplate(80);
-      break;
-   case CLASS_WARLOCK:
-      ApplyEnchantTemplate(90);
-      break;
-   case CLASS_PRIEST:
-       ApplyEnchantTemplate(50);
-       break;
-   }
-}
-
-void PlayerbotFactory::ApplyEnchantTemplate(uint8 spec, Item* item)
-{
-   for (EnchantContainer::const_iterator itr = GetEnchantContainerBegin(); itr != GetEnchantContainerEnd(); ++itr)
-      if ((*itr)->ClassId == bot->getClass() && (*itr)->SpecId == spec)
-         ai->EnchantItemT((*itr)->SpellId, (*itr)->SlotId, item);
-}
-
-void PlayerbotFactory::LoadEnchantContainer()
-{
-   for (EnchantContainer::const_iterator itr = m_EnchantContainer.begin(); itr != m_EnchantContainer.end(); ++itr)
-      delete *itr;
-
-   m_EnchantContainer.clear();
-
-   uint32 count = 0;
-
-   auto result = WorldDatabase.PQuery("SELECT class, spec, spellid, slotid FROM ai_playerbot_enchants");
-   if (result)
-   {
-      do
-      {
-         Field* fields = result->Fetch();
-
-         EnchantTemplate* pEnchant = new EnchantTemplate;
-
-         pEnchant->ClassId = fields[0].GetUInt8();
-         pEnchant->SpecId = fields[1].GetUInt8();
-         pEnchant->SpellId = fields[2].GetUInt32();
-         pEnchant->SlotId = fields[3].GetUInt8();
-
-         m_EnchantContainer.push_back(pEnchant);
-         ++count;
-      } while (result->NextRow());
-   }
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            ai::enchanting::EnchantItem(ai, item, true);
 }
 
 /*void PlayerbotFactory::InitGems() //WIP

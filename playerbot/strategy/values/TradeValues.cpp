@@ -5,6 +5,7 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/Enchanting.h"
 
 using namespace ai;
 
@@ -108,7 +109,8 @@ std::list<Item*> ItemsUsefulToEnchantValue::Calculate()
 
         Item* item = PAI_VALUE2(Item*, "item for spell", spellId);
 
-        if (!item)
+        if (!item || !enchanting::CanApplyEnchantment(bot, item, pSpellInfo) ||
+            !enchanting::CanApplyEnchantment(item->GetOwner(), item, pSpellInfo))
             continue;
 
         if (PHAS_AI_VALUE2("force item usage", item->GetProto()->ItemId))

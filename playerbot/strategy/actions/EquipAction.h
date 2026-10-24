@@ -17,7 +17,6 @@ namespace ai
         bool IsEnchantable(Item* item, uint32 spellid);
         void EnchantItem(Item* item);
 
-        std::vector<EnchantTemplate> enchants;
 #ifdef GenerateBotHelp
         virtual std::string GetHelpName() { return "equip"; }
         virtual std::string GetHelpDescription()

@@ -3,6 +3,7 @@
 #include "EquipAction.h"
 
 #include "playerbot/RandomItemMgr.h"
+#include "playerbot/Enchanting.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "UnequipAction.h"
@@ -100,56 +101,13 @@ void EquipAction::ListItems(Player* requester)
 
 bool EquipAction::IsEnchantable(Item* item, uint32 spellid)
 {
-
-#ifdef MANGOS
-   SpellEntry const* spellInfo = sSpellStore.LookupEntry(spellid);
-#else
-   SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spellid);
-#endif
-   if (!spellInfo)
-      return false;
-
-    return ((1 << item->GetProto()->SubClass) & spellInfo->EquippedItemSubClassMask) &&
-      ((1 << item->GetProto()->InventoryType) & spellInfo->EquippedItemInventoryTypeMask);
-
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellid);
+    return spell && ai::enchanting::CanApplyEnchantment(bot, item, spell);
 }
 
 void EquipAction::EnchantItem(Item* item)
 {
-    if (item)
-    {
-        int tab = AiFactory::GetPlayerSpecTab(bot);
-        uint32 tempId = uint32((uint32)bot->getClass() * (uint32)10);
-        uint8 spec = tempId += (uint32)tab;
-
-        if (enchants.empty())
-        {
-            auto result = WorldDatabase.PQuery("SELECT class, spec, spellid, slotid FROM ai_playerbot_enchants");
-            if (result)
-            {
-                do
-                {
-                    Field* fields = result->Fetch();
-
-                    EnchantTemplate pEnchant;
-                    pEnchant.ClassId = fields[0].GetUInt8();
-                    pEnchant.SpecId = fields[1].GetUInt8();
-                    pEnchant.SpellId = fields[2].GetUInt32();
-                    pEnchant.SlotId = fields[3].GetUInt8();
-                    enchants.push_back(pEnchant);
-                } while (result->NextRow());
-            }
-        }
-
-        for (const auto& enchant : enchants)
-        {
-            if (enchant.ClassId == bot->getClass() && enchant.SpecId == spec)
-            {
-                if (IsEnchantable(item, enchant.SpellId))
-                    ai->EnchantItemT(enchant.SpellId, enchant.SlotId, item);
-            }
-        }
-    }
+    ai::enchanting::EnchantItem(ai, item);
 }
 
 void EquipAction::EquipItems(Player* requester, ItemIds ids)

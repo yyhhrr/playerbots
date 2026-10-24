@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "ItemForSpellValue.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/Enchanting.h"
 
 using namespace ai;
 
@@ -28,7 +29,10 @@ Item* ItemForSpellValue::Calculate()
     if (trader)
     {
         itemForSpell = trader->GetTradeData()->GetItem(TRADE_SLOT_NONTRADED);
-        if (itemForSpell && itemForSpell->IsFitToSpellRequirements(spellInfo))
+        if (itemForSpell && itemForSpell->IsFitToSpellRequirements(spellInfo) &&
+            (!enchanting::IsPermanentEnchantmentSpell(spellInfo) ||
+             (enchanting::CanApplyEnchantment(bot, itemForSpell, spellInfo) &&
+              enchanting::CanApplyEnchantment(itemForSpell->GetOwner(), itemForSpell, spellInfo))))
             return itemForSpell;
     }
 
@@ -39,7 +43,10 @@ Item* ItemForSpellValue::Calculate()
         if (trader)
         {
             itemForSpell = trader->GetTradeData()->GetItem(TRADE_SLOT_NONTRADED);
-            if (itemForSpell && itemForSpell->IsFitToSpellRequirements(spellInfo))
+            if (itemForSpell && itemForSpell->IsFitToSpellRequirements(spellInfo) &&
+                (!enchanting::IsPermanentEnchantmentSpell(spellInfo) ||
+                 (enchanting::CanApplyEnchantment(bot, itemForSpell, spellInfo) &&
+                  enchanting::CanApplyEnchantment(itemForSpell->GetOwner(), itemForSpell, spellInfo))))
                 return itemForSpell;
         }
     }
@@ -103,6 +110,11 @@ Item* ItemForSpellValue::Calculate()
 Item* ItemForSpellValue::GetItemFitsToSpellRequirements(Item* itemForSpell, SpellEntry const* spellInfo)
 {
     if (!itemForSpell)
+        return nullptr;
+
+    if (enchanting::IsPermanentEnchantmentSpell(spellInfo) &&
+        (!enchanting::CanApplyEnchantment(bot, itemForSpell, spellInfo) ||
+         !enchanting::CanApplyEnchantment(itemForSpell->GetOwner(), itemForSpell, spellInfo)))
         return nullptr;
 
     if(spellInfo->Effect[0] != SPELL_EFFECT_ENCHANT_ITEM && itemForSpell->GetEnchantmentId(TEMP_ENCHANTMENT_SLOT))

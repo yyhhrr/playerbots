@@ -4,6 +4,7 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "GenericActions.h"
 #include "playerbot/RandomItemMgr.h"
+#include "playerbot/Enchanting.h"
 
 namespace ai
 {
@@ -92,7 +93,8 @@ namespace ai
 
             Item* item = AI_VALUE2(Item*, "item for spell", pSpellInfo->Id);
 
-            if (!item)
+            if (!item || !enchanting::CanApplyEnchantment(bot, item, pSpellInfo) ||
+                !enchanting::CanApplyEnchantment(item->GetOwner(), item, pSpellInfo))
                 return 0;
 
             uint32 castCount = AI_VALUE2(uint32, "has reagents for", pSpellInfo->Id);

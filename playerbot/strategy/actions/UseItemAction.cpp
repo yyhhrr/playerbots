@@ -3,6 +3,7 @@
 #include "UseItemAction.h"
 
 #include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/Enchanting.h"
 #include "Database/DBCStore.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
@@ -43,9 +44,11 @@ SpellCastResult BotUseItemSpell::ForceSpellStart(SpellCastTargets const* targets
         static_cast<Player*>(m_caster)->GetPlayerbotAI() : nullptr;
     const bool carrierSafe = !casterAI ||
         casterAI->IsSpellSafeForWarsong(m_spellInfo->Id, targets->getUnitTarget());
-    SpellCastResult result = carrierSafe ? PreCastCheck() : SPELL_FAILED_BAD_TARGETS;
+    const bool enchantSafe = !casterAI || ai::enchanting::CanApplyEnchantment(
+        static_cast<Player*>(m_caster), targets->getItemTarget(), m_spellInfo);
+    SpellCastResult result = carrierSafe && enchantSafe ? PreCastCheck() : SPELL_FAILED_BAD_TARGETS;
     bool failed = result != SPELL_CAST_OK;
-    if (carrierSafe && result == SPELL_FAILED_BAD_TARGETS && OpenLockCheck())
+    if (carrierSafe && enchantSafe && result == SPELL_FAILED_BAD_TARGETS && OpenLockCheck())
     {
         failed = false;
         m_IsTriggeredSpell = true;
@@ -654,7 +657,8 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
 
             // Resolve every on-use spell before starting any of them, so a
             // later unsafe effect cannot leave a spent, partly applied item.
-            if (!ai->IsSpellSafeForWarsong(spellInfo->Id, targets.getUnitTarget()))
+            if (!ai->IsSpellSafeForWarsong(spellInfo->Id, targets.getUnitTarget()) ||
+                !ai::enchanting::CanApplyEnchantment(bot, targets.getItemTarget(), spellInfo))
                 return false;
             if (validateOnly)
                 continue;

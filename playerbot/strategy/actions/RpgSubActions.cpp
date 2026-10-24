@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/Enchanting.h"
 #include "RpgSubActions.h"
 #include "ChooseRpgTargetAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -778,6 +779,12 @@ bool RpgEnchantAction::Execute(Event& event)
         Item* item = PAI_VALUE2(Item*, "item for spell", spellId);
 
         if (std::find(items.begin(), items.end(), item) == items.end())
+            continue;
+
+        // Recheck the recipient's level and equipment policy when the action runs.
+        const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+        if (!enchanting::CanApplyEnchantment(bot, item, spell) ||
+            !enchanting::CanApplyEnchantment(player, item, spell))
             continue;
 
         std::ostringstream param;

@@ -12,8 +12,6 @@ struct EnchantTemplate
    uint8   SlotId;
 };
 
-typedef std::vector<EnchantTemplate*> EnchantContainer;
-
 struct TaxiNodeLevel
 {
     uint32 Index;
@@ -116,12 +114,7 @@ private:
     void InitImmersive();
     void AddConsumables();
     static void AddPrevQuests(uint32 questId, std::list<uint32>& questIds);
-    void LoadEnchantContainer();
-    void ApplyEnchantTemplate();
-    void ApplyEnchantTemplate(uint8 spec, Item* item = nullptr);
     void InitGems();
-    EnchantContainer::const_iterator GetEnchantContainerBegin() { return m_EnchantContainer.begin(); }
-    EnchantContainer::const_iterator GetEnchantContainerEnd() { return m_EnchantContainer.end(); }
 
 private:
     uint32 level;
@@ -132,8 +125,6 @@ private:
     PlayerbotAI* ai;
     Player* bot;
 
-protected:
-   EnchantContainer m_EnchantContainer;
 };
 
 enum PriorizedConsumables

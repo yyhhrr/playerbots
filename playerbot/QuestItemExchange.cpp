@@ -59,8 +59,7 @@ namespace
     {
         ItemSpecType itemSpec;
         uint64 weight = sRandomItemMgr.CalculateStatWeight(bot->getClass(), spec, item.GetProto(), itemSpec);
-        if (item.GetEnchantId())
-            weight += sRandomItemMgr.CalculateEnchantWeight(bot->getClass(), spec, item.GetEnchantId());
+        // Use the same enchant-independent comparison as normal equipment needs.
         if (item.GetRandomPropertyId())
             weight += sRandomItemMgr.CalculateRandomPropertyWeight(bot->getClass(), spec, item.GetRandomPropertyId());
 #ifndef MANGOSBOT_ZERO

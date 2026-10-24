@@ -2482,8 +2482,8 @@ uint32 RandomItemMgr::ItemStatWeight(Player* player, ItemQualifier& qualifier)
 {
     ItemSpecType itSpec;
     uint32 weight = CalculateStatWeight(player->getClass(), GetPlayerSpecId(player), qualifier.GetProto(), itSpec);
-    if(qualifier.GetEnchantId())
-        weight += CalculateEnchantWeight(player->getClass(), GetPlayerSpecId(player), qualifier.GetEnchantId());
+    // Need and upgrade comparisons ignore applied enchants on both items.
+    // Random properties are intrinsic item stats and must still contribute.
     if (qualifier.GetRandomPropertyId())
         weight += CalculateRandomPropertyWeight(player->getClass(), GetPlayerSpecId(player), qualifier.GetRandomPropertyId());
     if(qualifier.GetGem1())

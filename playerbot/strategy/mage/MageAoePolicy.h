@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string_view>
 
 namespace ai
 {
@@ -17,6 +18,19 @@ namespace ai
         return level < 60 && HasMageAoeTargetCount(nearbyCount);
     }
 
+    inline bool IsMageAoeDamageAction(std::string_view name)
+    {
+        return name == "arcane explosion" || name == "leveling arcane explosion" ||
+            name == "flamestrike" || name == "blizzard";
+    }
+
+    inline bool IsMageAoeDisengageAction(std::string_view name)
+    {
+        return name == "flee" || name == "runaway" || name == "flee with pet" ||
+            name == "invisibility" || name == "lesser invisibility" || name == "ice block" ||
+            name == "shoot" || name == "evocation" || name == "blink";
+    }
+
     inline bool IsMageFlamestrikeCovered(std::size_t covered, std::size_t total)
     {
         // At least 75% of this pack must already be covered. This formulation
@@ -29,45 +43,12 @@ namespace ai
         bool uncontrolled = false;
         bool jumping = false;
         bool falling = false;
-        bool immediateAttacker = false;
     };
 
     inline bool IsMageBlizzardCasterReady(const MageBlizzardCasterState& state)
     {
         // Ordinary walking is intentionally allowed: the ground-cast path
         // stops movement, then retries if necessary for an unmastered bot.
-        return !state.uncontrolled && !state.jumping && !state.falling && !state.immediateAttacker;
-    }
-
-    struct MageBlizzardTargetState
-    {
-        bool hasGroupTank = false;
-        bool victimIsGroupTank = false;
-        bool rooted = false;
-        bool immediateAttacker = false;
-        float mageThreat = 0.0f;
-        float tankThreat = 0.0f;
-        float distance = 0.0f;
-        float meleeReach = 0.0f;
-        float runSpeed = 0.0f;
-    };
-
-    inline bool IsMageBlizzardTargetReady(const MageBlizzardTargetState& state)
-    {
-        if (state.immediateAttacker)
-            return false;
-
-        if (state.hasGroupTank)
-        {
-            // Match the existing AOE threat margin, but require this creature
-            // to be attacking a tank rather than trusting party composition.
-            return state.victimIsGroupTank && state.tankThreat > 0.0f &&
-                state.mageThreat < state.tankThreat * 0.5f;
-        }
-
-        // Reserve room for several ticks before melee contact. Roots hold the
-        // enemy; current run speed naturally accounts for movement slows.
-        const float safeDistance = state.meleeReach + state.runSpeed * 3.0f;
-        return state.distance > 10.0f && (state.rooted || state.distance >= safeDistance);
+        return !state.uncontrolled && !state.jumping && !state.falling;
     }
 }

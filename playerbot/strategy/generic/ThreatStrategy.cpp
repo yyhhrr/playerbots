@@ -3,12 +3,17 @@
 #include "ThreatStrategy.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
+#include "playerbot/strategy/mage/MageAoePolicy.h"
 
 using namespace ai;
 
 float ThreatMultiplier::GetValue(Action* action)
 {
     if (action == NULL || action->getThreatType() == ActionThreatType::ACTION_THREAT_NONE || action->getThreatType() == ActionThreatType::ACTION_THREAT_LOW)
+        return 1.0f;
+
+    // Mage AOE actions already enforce target count and crowd-control protection.
+    if (bot->getClass() == CLASS_MAGE && IsMageAoeDamageAction(action->getName()))
         return 1.0f;
 
     if (!AI_VALUE(bool, "group"))

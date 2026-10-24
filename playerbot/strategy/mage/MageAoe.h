@@ -19,6 +19,9 @@ namespace ai
     bool FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& result,
         bool avoidExistingFlamestrike = false);
 
+    // Check an existing cast's fixed damage area without requiring another pack.
+    bool IsMageAoeAreaSafe(PlayerbotAI* ai, uint32 spellId, float x, float y, float z);
+
     // Recheck the caster-centred explosion, including nearby crowd control.
     Unit* FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly = false);
 }

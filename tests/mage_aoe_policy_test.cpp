@@ -55,49 +55,16 @@ int main()
     caster.falling = true;
     Check(!IsMageBlizzardCasterReady(caster), "falling prevents a channel");
     caster = {};
-    caster.immediateAttacker = true;
-    Check(!IsMageBlizzardCasterReady(caster), "an immediate attacker outside the selected pack blocks a channel");
+    Check(IsMageBlizzardCasterReady(caster), "a caster can channel without a tank, threat margin or distance requirement");
 
-    MageBlizzardTargetState tanked;
-    tanked.hasGroupTank = true;
-    tanked.victimIsGroupTank = true;
-    tanked.tankThreat = 100.0f;
-    tanked.mageThreat = 49.0f;
-    Check(IsMageBlizzardTargetReady(tanked), "forty-nine percent tank threat allows Blizzard without a combat timer");
-    tanked.mageThreat = 50.0f;
-    Check(!IsMageBlizzardTargetReady(tanked), "fifty percent tank threat blocks Blizzard");
-    tanked.mageThreat = 0.0f;
-    tanked.tankThreat = 0.0f;
-    Check(!IsMageBlizzardTargetReady(tanked), "zero-threat tank has not established control");
-    tanked.tankThreat = 100.0f;
-    tanked.victimIsGroupTank = false;
-    Check(!IsMageBlizzardTargetReady(tanked), "missing or non-tank victim cannot satisfy party tank safety");
-    tanked.victimIsGroupTank = true;
-    tanked.immediateAttacker = true;
-    Check(!IsMageBlizzardTargetReady(tanked), "an immediate attacker blocks even with sufficient tank threat");
-
-    MageBlizzardTargetState solo;
-    solo.distance = 15.0f;
-    solo.meleeReach = 3.0f;
-    solo.runSpeed = 7.0f;
-    solo.rooted = true;
-    Check(IsMageBlizzardTargetReady(solo), "a safely distant rooted pack allows solo Blizzard");
-    solo.distance = 10.0f;
-    Check(!IsMageBlizzardTargetReady(solo), "a root does not permit a channel inside the immediate danger margin");
-    solo.distance = 9.9f;
-    Check(!IsMageBlizzardTargetReady(solo), "a nearby rooted pack remains unsafe");
-    solo.rooted = false;
-    solo.distance = 23.9f;
-    Check(!IsMageBlizzardTargetReady(solo), "ordinary running speed needs sufficient time before contact");
-    solo.distance = 24.0f;
-    Check(IsMageBlizzardTargetReady(solo), "exact speed-based safe separation permits useful channel ticks");
-    solo.distance = 15.0f;
-    Check(!IsMageBlizzardTargetReady(solo), "an unslowed nearby pack does not permit a solo channel");
-    solo.runSpeed = 3.5f;
-    Check(IsMageBlizzardTargetReady(solo), "a slowed pack needs less separation than a running pack");
-    solo.immediateAttacker = true;
-    Check(!IsMageBlizzardTargetReady(solo), "a close attacker overrides the slower approach speed");
-
+    for (const char* action : {"arcane explosion", "leveling arcane explosion", "flamestrike", "blizzard"})
+        Check(IsMageAoeDamageAction(action), std::string(action) + " participates in persistent AOE output");
+    for (const char* action : {"frostbolt", "fireball", "cone of cold", "healing potion"})
+        Check(!IsMageAoeDamageAction(action), std::string(action) + " retains ordinary threat rules");
+    for (const char* action : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink"})
+        Check(IsMageAoeDisengageAction(action), std::string(action) + " cannot interrupt an available AOE opportunity");
+    for (const char* action : {"healing potion", "mana potion", "mana gem", "mana shield", "ice barrier", "frost nova", "counterspell", "follow", "select new target"})
+        Check(!IsMageAoeDisengageAction(action), std::string(action) + " remains available during AOE");
     std::cout << checks << " mage AOE policy checks passed\n";
     return EXIT_SUCCESS;
 }

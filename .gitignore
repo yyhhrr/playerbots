@@ -80,6 +80,7 @@ tests
 !/tests/warsong_spell_policy_test.cpp
 !/tests/mage_aoe_targeting_test.cpp
 !/tests/mage_arcane_explosion_test.cpp
+!/tests/mage_aoe_courage_test.cpp
 !/tests/enchanting_policy_test.cpp
 !/tests/enchanting_exchange_test.cpp
 !/tests/enchanting_runtime_test.cpp

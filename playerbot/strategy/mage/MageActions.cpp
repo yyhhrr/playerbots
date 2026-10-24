@@ -4,9 +4,6 @@
 #include "MageAoe.h"
 #include "MageAoePolicy.h"
 
-#include "Combat/ThreatManager.h"
-#include "Groups/Group.h"
-
 using namespace ai;
 
 bool CastMageGroundAoeAction::SelectAoeTarget(MageAoeTarget& target)
@@ -60,69 +57,14 @@ bool CastMageGroundAoeAction::Execute(Event& event)
     return true;
 }
 
-bool CastBlizzardAction::IsAoeReady(const MageAoeTarget& target)
+bool CastBlizzardAction::IsAoeReady(const MageAoeTarget&)
 {
     MageBlizzardCasterState caster;
     caster.uncontrolled = bot->hasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL);
     caster.jumping = ai->IsJumping();
     caster.falling = bot->IsFalling();
 
-    // Do not start a channel with an immediate attacker, including one outside
-    // the selected pack. Ordinary movement can be stopped by the ground-cast
-    // path; jumping and uncontrolled movement cannot.
-    for (Unit* attacker : bot->getAttackers())
-    {
-        if (attacker && attacker->IsInWorld() && sServerFacade.IsAlive(attacker) &&
-            (attacker->CanReachWithMeleeAttack(bot) || sServerFacade.GetDistance2d(bot, attacker) < 10.0f))
-            caster.immediateAttacker = true;
-    }
-
-    if (!IsMageBlizzardCasterReady(caster))
-        return false;
-
-    std::set<Player*> tanks;
-    if (Group* group = bot->GetGroup())
-    {
-        for (GroupReference* member = group->GetFirstMember(); member; member = member->next())
-        {
-            Player* player = member->getSource();
-            if (player && player != bot && player->IsInWorld() && player->GetMap() == bot->GetMap() &&
-                sServerFacade.IsAlive(player) && ai->IsSafe(player) && ai->IsTank(player))
-                tanks.insert(player);
-        }
-    }
-
-    for (ObjectGuid guid : target.targets)
-    {
-        Unit* enemy = ai->GetUnit(guid);
-        if (!enemy || !enemy->IsInWorld() || !sServerFacade.IsAlive(enemy))
-            return false;
-
-        MageBlizzardTargetState state;
-        state.hasGroupTank = !tanks.empty();
-        state.distance = sServerFacade.GetDistance2d(bot, enemy);
-        state.immediateAttacker = enemy->GetVictim() == bot &&
-            (enemy->CanReachWithMeleeAttack(bot) || state.distance < 10.0f);
-
-        if (state.hasGroupTank)
-        {
-            Unit* victim = enemy->GetVictim();
-            state.victimIsGroupTank = victim && victim->GetObjectGuid().IsPlayer() &&
-                tanks.find(static_cast<Player*>(victim)) != tanks.end();
-            if (state.victimIsGroupTank)
-                state.tankThreat = sServerFacade.GetThreatManager(enemy).getThreat(victim);
-            state.mageThreat = sServerFacade.GetThreatManager(enemy).getThreat(bot);
-        }
-        else
-        {
-            state.rooted = enemy->hasUnitState(UNIT_STAT_ROOT) || enemy->HasAuraType(SPELL_AURA_MOD_ROOT);
-            state.meleeReach = enemy->GetCombatReach() + bot->GetCombatReach();
-            state.runSpeed = enemy->GetSpeed(MOVE_RUN);
-        }
-
-        if (!IsMageBlizzardTargetReady(state))
-            return false;
-    }
-
-    return true;
+    // Being hit, holding aggro and the absence of a tank do not stop AOE.
+    // Target count, line of sight and crowd control are checked by the selector.
+    return IsMageBlizzardCasterReady(caster);
 }

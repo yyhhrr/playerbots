@@ -67,6 +67,12 @@ MageStrategy::MageStrategy(PlayerbotAI* ai) : ClassStrategy(ai)
     actionNodeFactories.Add(std::make_unique<MageStrategyActionNodeFactory>());
 }
 
+void MageAoeStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
+{
+    AoeStrategy::InitCombatMultipliers(multipliers);
+    multipliers.push_back(new MageAoeCommitMultiplier(ai, getName()));
+}
+
 #ifdef MANGOSBOT_ZERO // Vanilla
 
 void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

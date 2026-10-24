@@ -237,6 +237,34 @@ bool ai::FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& resul
     return result.targets.size() >= MAGE_GROUND_AOE_MIN_TARGETS;
 }
 
+bool ai::IsMageAoeAreaSafe(PlayerbotAI* ai, uint32 spellId, float x, float y, float z)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    const Point center{ x, y, z };
+    if (!bot || !bot->IsAlive() || !bot->IsInWorld() || !spell || !MageAoeGeometry::IsFinite(center))
+        return false;
+    const float radius = GetDamageRadius(bot, spell);
+    if (radius <= 0.0f)
+        return false;
+    const bool ignoreLos = spell->HasAttribute(SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT);
+    const Point caster = GetPoint(bot);
+    const float dx = x - caster.x, dy = y - caster.y, dz = z - caster.z;
+    const float scanRange = std::sqrt(dx * dx + dy * dy + dz * dz) + radius;
+
+    std::list<Unit*> nearby;
+    MaNGOS::AnyUnitInObjectRangeCheck check(bot, scanRange);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnitInObjectRangeCheck> searcher(nearby, check);
+    Cell::VisitAllObjects(bot, searcher, scanRange);
+    for (Unit* target : nearby)
+    {
+        if (target && target->IsAlive() && target->HasBreakableByDamageCrowdControlAura() &&
+            bot->CanAttackSpell(target, spell, true) && CanHit(bot, center, target, radius, ignoreLos))
+            return false;
+    }
+    return true;
+}
+
 Unit* ai::FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly)
 {
     Player* bot = ai ? ai->GetBot() : nullptr;
@@ -293,18 +321,6 @@ Unit* ai::FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly)
     if (!(levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), count) : HasMageAoeTargetCount(count)))
         return nullptr;
 
-    // Scan live world units independently of combat/CC target lists and raid marks.
-    // This also protects a sheep that was never part of this bot's attackers list.
-    std::list<Unit*> nearby;
-    MaNGOS::AnyUnitInObjectRangeCheck check(bot, radius);
-    MaNGOS::UnitListSearcher<MaNGOS::AnyUnitInObjectRangeCheck> searcher(nearby, check);
-    Cell::VisitAllObjects(bot, searcher, radius);
-    for (Unit* target : nearby)
-    {
-        if (target && target->IsAlive() && target->HasBreakableByDamageCrowdControlAura() &&
-            bot->CanAttackSpell(target, spell, true) && CanHit(bot, center, target, radius, ignoreLos))
-            return nullptr;
-    }
-
-    return spellTarget;
+    // Check every live unit in the blast, including sheep outside combat lists.
+    return IsMageAoeAreaSafe(ai, spellId, center.x, center.y, center.z) ? spellTarget : nullptr;
 }

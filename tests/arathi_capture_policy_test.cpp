@@ -26,6 +26,42 @@ int main()
 {
     using namespace ai::arathi;
 
+    CaptureThreat threat;
+    threat.distance = 12.0f;
+    threat.attackable = threat.visible = threat.lineOfSight = threat.directAttack = true;
+    Check(IsImmediateCaptureThreat(threat), "a visible nearby attacker interrupts the flag opener");
+    threat.directAttack = false;
+    Check(!IsImmediateCaptureThreat(threat), "nearby enemies fighting teammates do not indefinitely block a safe capture");
+    threat.spellTargetsBot = true;
+    Check(IsImmediateCaptureThreat(threat), "a hostile cast targeting the opener counts before native attacker links are populated");
+    threat.distance = 40.0f;
+    Check(IsImmediateCaptureThreat(threat), "a direct ranged attacker at the response boundary interrupts capture");
+    threat.distance = 40.1f;
+    Check(!IsImmediateCaptureThreat(threat), "a distant stale attack link does not indefinitely block capture");
+    threat.distance = 12.0f; threat.disabled = true;
+    Check(!IsImmediateCaptureThreat(threat), "an enemy disabled by breakable control can be left controlled while opening");
+    threat.disabled = false; threat.visible = false;
+    Check(!IsImmediateCaptureThreat(threat), "an invisible attacker is not fabricated into a reachable response target");
+    threat.visible = true; threat.lineOfSight = false;
+    Check(!IsImmediateCaptureThreat(threat), "a blocked distant caster does not force an impossible response");
+    threat.lineOfSight = true; threat.attackable = false;
+    Check(!IsImmediateCaptureThreat(threat), "a dead friendly or unattackable cached enemy cannot block capture");
+    threat.attackable = true; threat.distance = -1.0f;
+    Check(!IsImmediateCaptureThreat(threat), "negative threat distance is invalid");
+    threat.distance = std::numeric_limits<float>::quiet_NaN();
+    Check(!IsImmediateCaptureThreat(threat), "unknown threat distance is invalid");
+    threat.distance = std::numeric_limits<float>::infinity();
+    Check(!IsImmediateCaptureThreat(threat), "an infinite threat distance cannot force a response");
+
+    Check(!IsCaptureRetryHeld(0, 1000), "a fresh opener with no threat history is free to capture");
+    Check(IsCaptureRetryHeld(1000, 1000), "a fresh interruption prevents an immediate capture retry");
+    Check(IsCaptureRetryHeld(1000, 3499), "the interruption hold persists until its short cooldown ends");
+    Check(!IsCaptureRetryHeld(1000, 3500), "safe capture resumes at the cooldown boundary");
+    Check(IsCaptureRetryHeld(std::numeric_limits<std::uint32_t>::max() - 1000, 1000),
+        "capture retry hold remains valid across the monotonic clock wrap");
+    Check(!IsCaptureRetryHeld(std::numeric_limits<std::uint32_t>::max() - 1000, 2000),
+        "capture retry hold expires normally after a monotonic clock wrap");
+
     Check(ElectCapturer({}) == 0, "empty flag candidate set has no capturer");
     Check(ElectCapturer({{11, 2.0f, true, false}}) == 11, "one available bot opens the flag");
     Check(ElectCapturer({{11, 2.0f, false, false}}) == 0, "ordinary human is not assigned capture duty");

@@ -114,13 +114,14 @@ struct PlayerbotAI
     Player bot;
     AiObjectContext context;
     bool grouped = true, highThreat = true, areaDebuff = false, aoeEnabled = true, jumping = false;
-    bool groundAoeSafe = true;
+    bool groundAoeSafe = true, pvp = false;
     Position checkedArea;
     uint8 aoeThreat = 100;
     Player* GetBot() { return &bot; }
     Player* GetMaster() { return nullptr; }
     AiObjectContext* GetAiObjectContext() { return &context; }
     bool IsJumping() const { return jumping; }
+    bool IsInPvp() const { return pvp; }
     bool HasStrategy(const std::string& name, BotState) const { return name == "aoe" && aoeEnabled; }
     template<class T> T Value(const std::string& name, const std::string& qualifier = "") const
     {
@@ -224,6 +225,14 @@ int main()
         Action action{name};
         Check(courage.GetValue(&action) == 0.0f, std::string(name) + " cannot displace a usable AOE pack");
     }
+    ai.pvp = true;
+    for (const char* name : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink"})
+    {
+        Action action{name};
+        Check(courage.GetValue(&action) == 1.0f,
+            std::string(name) + " remains available in PvP even while a usable AOE pack is present");
+    }
+    ai.pvp = false;
     for (const char* name : {"mana potion", "mana gem", "healing potion", "ice barrier", "mana shield", "frost nova", "counterspell", "follow", "attack", "select new target"})
     {
         Action action{name};
@@ -287,12 +296,18 @@ int main()
     Check(courage.GetValue(&flee) == 0.0f, "an ongoing higher-rank Blizzard channel keeps going when fewer than three enemies remain");
     Check(ai.checkedArea.x == 25.0f && ai.checkedArea.y == 3.0f && ai.checkedArea.z == 1.0f,
         "ongoing channels inspect their fixed destination rather than selecting another pack");
+    ai.pvp = true;
+    Check(courage.GetValue(&flee) == 1.0f, "an ongoing Blizzard channel cannot suppress PvP repositioning");
+    ai.pvp = false;
     channel.state = SPELL_STATE_FINISHED;
     Check(courage.GetValue(&flee) == 1.0f, "a finished channel cannot indefinitely suppress escape");
     ai.bot.currentSpells[CURRENT_CHANNELED_SPELL] = nullptr;
     Spell cast{&currentFlamestrike};
     ai.bot.currentSpells[CURRENT_GENERIC_SPELL] = &cast;
     Check(courage.GetValue(&flee) == 0.0f, "an ongoing Flamestrike cast is not interrupted by ordinary escape");
+    ai.pvp = true;
+    Check(courage.GetValue(&flee) == 1.0f, "an ongoing Flamestrike cast cannot suppress PvP survival");
+    ai.pvp = false;
     ai.groundAoeSafe = false;
     Check(courage.GetValue(&flee) == 1.0f, "a lost or controlled pack does not force continued commitment to a cast");
     ai.groundAoeSafe = true; cast.m_spellInfo = &currentSingle;
@@ -305,6 +320,10 @@ int main()
     sServerFacade.spells[1449] = {1449, 100};
     ai.bot.globalCooldown = true;
     Check(courage.GetValue(&flee) == 0.0f, "the global cooldown between affordable explosions does not trigger retreat");
+    ai.pvp = true;
+    Action rootedBlink{"blink"};
+    Check(courage.GetValue(&rootedBlink) == 1.0f, "PvP root recovery is not held through an AOE global cooldown");
+    ai.pvp = false;
     ai.bot.mana = 99;
     Check(courage.GetValue(&flee) == 1.0f, "a global cooldown with insufficient mana still permits escape");
     ai.bot.mana = 100; ai.bot.uncontrolled = true;

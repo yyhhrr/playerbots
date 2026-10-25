@@ -8,6 +8,33 @@ namespace ai
 {
 namespace arathi
 {
+    constexpr float CaptureThreatRadius = 40.0f;
+    constexpr std::uint32_t CaptureRetryDelayMs = 2500;
+
+    struct CaptureThreat
+    {
+        float distance = 0.0f;
+        bool attackable = false;
+        bool visible = false;
+        bool lineOfSight = false;
+        bool disabled = false;
+        bool directAttack = false;
+        bool spellTargetsBot = false;
+    };
+
+    inline bool IsImmediateCaptureThreat(const CaptureThreat& threat)
+    {
+        return std::isfinite(threat.distance) && threat.distance >= 0.0f &&
+            threat.distance <= CaptureThreatRadius && threat.attackable &&
+            threat.visible && threat.lineOfSight && !threat.disabled &&
+            (threat.directAttack || threat.spellTargetsBot);
+    }
+
+    inline bool IsCaptureRetryHeld(std::uint32_t lastThreat, std::uint32_t now)
+    {
+        return lastThreat && std::uint32_t(now - lastThreat) < CaptureRetryDelayMs;
+    }
+
     struct CaptureCandidate
     {
         std::uint64_t guid = 0;

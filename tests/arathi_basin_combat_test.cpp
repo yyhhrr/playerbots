@@ -53,6 +53,14 @@ int main()
     Check(!IsArathiDefenderTargetAllowed(true, true, 60.0f, 25.0f, true, true), "a player-controlled pet cannot keep its defender chasing outside the node");
     Check(IsArathiDefenderTargetAllowed(true, true, 45.0f, 6.0f, true, true), "a pet biting the defender can be fought while returning to the flag");
     Check(IsArathiDefenderTargetAllowed(true, true, 60.0f, 25.0f, true, false), "ordinary NPC combat keeps its existing pursuit rules");
+    Check(IsArathiDefenderTargetAllowed(true, true, 60.0f, 25.0f, true, true, false),
+        "a rooted defender can retaliate at range against its direct attacker without starting pursuit");
+    Check(!IsArathiDefenderTargetAllowed(true, true, 60.0f, 25.0f, false, true, false),
+        "being rooted does not authorize unrelated distant enemies");
+    Check(!IsArathiDefenderTargetAllowed(true, true, 60.0f, 40.1f, true, true, false),
+        "immobile retaliation still has a bounded spell-response range");
+    Check(!IsArathiDefenderTargetAllowed(true, true, 60.0f, 25.0f, true, true, true),
+        "movement becoming available restores the normal short self-defense pursuit limit");
 
     const ArathiCombatCandidate capper{ true, 25.0f, 4000 };
     const ArathiCombatCandidate decoy{ false, 3.0f, 20 };

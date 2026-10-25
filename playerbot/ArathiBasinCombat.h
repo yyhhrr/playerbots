@@ -17,15 +17,17 @@ namespace ai
 
     inline bool IsArathiDefenderTargetAllowed(bool defending, bool hasObjective,
         float distanceFromObjective, float distanceFromDefender, bool directlyAttackingDefender,
-        bool playerControlled = true)
+        bool playerControlled = true, bool canMove = true)
     {
         if (!defending || !hasObjective || !playerControlled)
             return true;
 
         // A nearby direct attacker can still be fought while moving back to the flag.
         // Threat history or an owner's distant pet must not turn into a pursuit exemption.
+        // An immobilized guard may retaliate at range without authorizing a chase.
         return distanceFromObjective <= ArathiDefenderRadius ||
-            (directlyAttackingDefender && distanceFromDefender <= ArathiSelfDefenseRadius);
+            (directlyAttackingDefender && (distanceFromDefender <= ArathiSelfDefenseRadius ||
+                (!canMove && distanceFromDefender <= ArathiDefenderRadius)));
     }
 
     struct ArathiCombatCandidate

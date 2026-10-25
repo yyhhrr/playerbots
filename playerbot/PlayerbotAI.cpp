@@ -6,6 +6,7 @@
 #include "playerbot/AiFactory.h"
 #include "playerbot/WarsongSpellPolicy.h"
 #include "playerbot/WarsongTactics.h"
+#include "playerbot/ArathiBasinTactics.h"
 
 #include "MotionGenerators/MovementGenerator.h"
 #include "Grids/GridNotifiers.h"
@@ -601,6 +602,11 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         bot->StopMoving();
     }
+
+    // Banner casts can suspend the internal engine for their full cast time.
+    // Check live attacks outside that delay so a threatened opener can fight back.
+    if (arathi::UpdateCaptureResponse(this))
+        ResetAIInternalUpdateDelay();
 
     // Update facing
     UpdateFaceTarget(elapsed, minimal);

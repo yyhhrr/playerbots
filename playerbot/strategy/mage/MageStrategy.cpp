@@ -144,6 +144,10 @@ void MagePvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassPvpStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "mage pvp retreat",
+        NextAction::array(0, new NextAction("flee", ACTION_EMERGENCY - 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "very often",
         NextAction::array(0, new NextAction("fire blast", ACTION_HIGH), NULL)));
 }
@@ -575,6 +579,10 @@ void MagePvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassPvpStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "mage pvp retreat",
+        NextAction::array(0, new NextAction("flee", ACTION_EMERGENCY - 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "very often",
         NextAction::array(0, new NextAction("fire blast", ACTION_HIGH), NULL)));
 }
@@ -992,6 +1000,10 @@ void MageStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void MagePvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassPvpStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "mage pvp retreat",
+        NextAction::array(0, new NextAction("flee", ACTION_EMERGENCY - 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "very often",

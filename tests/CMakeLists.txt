@@ -88,6 +88,29 @@ target_include_directories(mage_aoe_courage_test PRIVATE "${CMAKE_CURRENT_BINARY
 target_compile_features(mage_aoe_courage_test PRIVATE cxx_std_20)
 add_test(NAME mage_aoe_courage COMMAND mage_aoe_courage_test)
 
+# Execute the actual PvP root-opportunity trigger and its classic strategy priority.
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageTriggers.cpp" "bool MagePvpRetreatTrigger::IsActive(" "Unit* LevelingArcaneExplosionTrigger::GetTarget(" mage_pvp_retreat_trigger.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageStrategy.cpp" "void MagePvpStrategy::InitCombatTriggers(" "void MagePvpStrategy::InitNonCombatTriggers(" mage_pvp_retreat_registration.inc)
+add_executable(mage_pvp_retreat_test mage_pvp_retreat_test.cpp)
+target_include_directories(mage_pvp_retreat_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(mage_pvp_retreat_test PRIVATE cxx_std_20)
+add_test(NAME mage_pvp_retreat COMMAND mage_pvp_retreat_test)
+
+# Exercise the live Arathi threat scan, capture interruption/backoff, outer AI
+# wakeup and defender return action against a deterministic small battlefield.
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/ArathiBasinTactics.cpp"
+    "    void DelayCapture(" "\n}\n\nbool IsCapturing(" arathi_capture_delay.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/ArathiBasinTactics.cpp"
+    "bool IsCapturing(" "bool IsCoveringCapture(" arathi_capture_response.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/PlayerbotAI.cpp"
+    "    // Banner casts can suspend the internal engine for their full cast time." "    // Update facing" arathi_outer_response.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/BattleGroundTactics.cpp"
+    "bool BGTactics::returnToArathiObjective(" "bool BGTactics::flagTaken(" arathi_return_objective.inc)
+add_executable(arathi_response_runtime_test arathi_response_runtime_test.cpp)
+target_include_directories(arathi_response_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(arathi_response_runtime_test PRIVATE cxx_std_20)
+add_test(NAME arathi_response_runtime COMMAND arathi_response_runtime_test)
+
 # Run the production self-centred explosion selector and both action classes.
 set(MAGE_ARCANE_AOE_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageAoe.cpp" CACHE FILEPATH "Mage Arcane Explosion selector source under test")
 set(MAGE_ARCANE_ACTION_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageActions.h" CACHE FILEPATH "Mage Arcane Explosion actions under test")

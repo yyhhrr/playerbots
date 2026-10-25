@@ -93,7 +93,8 @@ namespace
         const PositionEntry& center = objective->second;
         return IsArathiDefenderTargetAllowed(true, true,
             sServerFacade.GetDistance2d(enemy, center.x, center.y),
-            sServerFacade.GetDistance2d(defender, enemy), IsDirectlyAttackingDefender(enemy, defender), playerControlled);
+            sServerFacade.GetDistance2d(defender, enemy), IsDirectlyAttackingDefender(enemy, defender), playerControlled,
+            ai->CanMove());
     }
 
     bool IsCapturingArathiBanner(Unit* enemy, Player* defender, BattleGround* battleground)

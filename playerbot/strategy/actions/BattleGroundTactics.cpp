@@ -6,6 +6,7 @@
 #include "BattleGround/BattleGroundMgr.h"
 #include "BattleGroundTactics.h"
 #include "playerbot/ArathiBasinTactics.h"
+#include "playerbot/ArathiBasinCombat.h"
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
 #include "float.h"
@@ -2860,8 +2861,13 @@ bool BGTactics::Execute(Event& event)
         ai::arathi::SelectObjective(ai, objective);
         if (!bot->IsAlive())
             return false;
+        if (ai::arathi::UpdateCaptureResponse(ai))
+            return false;
         if (ai::arathi::IsCapturing(bot))
+        {
+            SetDuration(250);
             return true;
+        }
     }
 
     if (bgType == BATTLEGROUND_WS && bg->GetStatus() == STATUS_IN_PROGRESS)
@@ -4518,8 +4524,9 @@ bool BGTactics::checkArathiFlag()
         ai->StopMoving();
         Spell* spell = new Spell(bot, spellInfo, false);
         spell->m_targets.setGOTarget(flag);
+        ai::arathi::RecordCaptureStart(ai);
         spell->SpellStart(&spell->m_targets);
-        ai->WaitForSpellCast(spell);
+        SetDuration(250);
         // Keep the assignment while the banner changes and the node is being secured.
         return true;
     }
@@ -4536,14 +4543,24 @@ bool BGTactics::returnToArathiObjective()
         sServerFacade.GetDistance2d(bot, anchor.x, anchor.y) <= 40.0f)
         return false;
 
-    // A close attacker may be fought in self-defence, but cannot drag a guard away indefinitely.
+    // Returning is not possible while rooted. Do not cancel legal attacks or
+    // repeated spell/escape attempts just because the flag is outside our radius.
+    if (!ai->CanMove())
+        return false;
+    if (Unit* attacker = ai::arathi::GetImmediateCaptureThreat(ai))
+        if (sServerFacade.GetDistance2d(bot, attacker) <= ArathiSelfDefenseRadius)
+            return false;
+
+    // Only release combat after a route back to the flag has actually started.
+    if (!MoveTo(anchor.mapId, anchor.x, anchor.y, anchor.z, false, false, false, true))
+        return false;
     bot->AttackStop();
     if (Pet* pet = bot->GetPet())
     {
         pet->AttackStop();
         pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
     }
-    return MoveTo(anchor.mapId, anchor.x, anchor.y, anchor.z, false, false, false, true);
+    return true;
 }
 
 bool BGTactics::flagTaken()

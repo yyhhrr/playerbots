@@ -179,12 +179,142 @@ namespace
         Refresh(plan, bot, now);
         return plan;
     }
+
+    void DelayCapture(PlayerbotAI* ai)
+    {
+        ai->GetAiObjectContext()->GetValue<int32>("manual int", "arathi capture threat time")
+            ->Set(int32(WorldTimer::getMSTime()));
+    }
+
+    bool CanAttemptCapture(PlayerbotAI* ai)
+    {
+        if (GetImmediateCaptureThreat(ai))
+        {
+            DelayCapture(ai);
+            return false;
+        }
+        const uint32 lastThreat = uint32(ai->GetAiObjectContext()->GetValue<int32>(
+            "manual int", "arathi capture threat time")->Get());
+        return !IsCaptureRetryHeld(lastThreat, WorldTimer::getMSTime());
+    }
 }
 
 bool IsCapturing(Player* player)
 {
     Spell* spell = player ? player->GetCurrentSpell(CURRENT_GENERIC_SPELL) : nullptr;
     return spell && spell->getState() != SPELL_STATE_FINISHED && spell->m_spellInfo->Id == CaptureSpell;
+}
+
+void RecordCaptureStart(PlayerbotAI* ai)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (IsArathi(bot) && bot->IsAlive())
+        ai->GetAiObjectContext()->GetValue<int32>("manual int", "arathi capture health")
+            ->Set(int32(bot->GetHealth()));
+}
+
+Unit* GetImmediateCaptureThreat(PlayerbotAI* ai)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!IsArathi(bot) || !bot->IsAlive())
+        return nullptr;
+
+    Unit* nearest = nullptr;
+    float nearestDistance = CaptureThreatRadius + 1.0f;
+    const auto consider = [&](Unit* enemy)
+    {
+        if (!enemy || enemy == bot || !enemy->IsInWorld() || enemy->GetMap() != bot->GetMap() ||
+            !enemy->IsAlive() || !bot->CanAttack(enemy))
+            return;
+        const float distance = bot->GetDistance(enemy);
+        if (distance > nearestDistance || distance > CaptureThreatRadius)
+            return;
+
+        bool castingAtBot = false;
+        for (CurrentSpellTypes type : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL, CURRENT_AUTOREPEAT_SPELL })
+        {
+            Spell* spell = enemy->GetCurrentSpell(type);
+            if (spell && spell->getState() != SPELL_STATE_FINISHED && spell->m_targets.getUnitTarget() == bot)
+            {
+                castingAtBot = true;
+                break;
+            }
+        }
+        const CaptureThreat threat = { distance, true,
+            enemy->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true),
+            sServerFacade.IsWithinLOSInMap(bot, enemy),
+            enemy->HasAuraType(SPELL_AURA_MOD_STUN) || enemy->HasAuraType(SPELL_AURA_MOD_CONFUSE) ||
+                enemy->HasAuraType(SPELL_AURA_MOD_FEAR),
+            enemy->GetVictim() == bot, castingAtBot };
+        if (IsImmediateCaptureThreat(threat))
+        {
+            nearest = enemy;
+            nearestDistance = distance;
+        }
+    };
+
+    // A ranged cast may not yet have entered getAttackers(). Read live players
+    // and their pets as well; do not depend on cached or defender-filtered lists.
+    for (Unit* attacker : bot->getAttackers())
+        consider(attacker);
+    for (const auto& ref : bot->GetMap()->GetPlayers())
+    {
+        Player* player = ref.getSource();
+        if (!player || player->GetTeam() == bot->GetTeam())
+            continue;
+        consider(player);
+        consider(player->GetPet());
+    }
+    return nearest;
+}
+
+bool UpdateCaptureResponse(PlayerbotAI* ai)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!IsArathi(bot))
+        return false;
+
+    auto* context = ai->GetAiObjectContext();
+    auto* health = context->GetValue<int32>("manual int", "arathi capture health");
+    if (!bot->IsAlive())
+    {
+        health->Set(0);
+        return false;
+    }
+    const uint32 previousHealth = uint32(health->Get());
+    const uint32 currentHealth = bot->GetHealth();
+    const bool capturing = IsCapturing(bot);
+    if (!capturing && !previousHealth)
+        return false;
+    const bool damaged = previousHealth && currentHealth < previousHealth;
+    // Healing raises the reference too, so later damage is still detected. A
+    // native damage interruption may finish the cast before this outer update.
+    health->Set(capturing ? int32(currentHealth) : 0);
+    if (!capturing && !damaged)
+        return false;
+    Unit* threat = GetImmediateCaptureThreat(ai);
+    if (!threat && !damaged)
+        return false;
+
+    // Interrupt this banner cast only. The outer AI update wakes its ordinary
+    // combat engine immediately, even if it was sleeping for the full cast time.
+    if (capturing)
+        bot->InterruptSpell(CURRENT_GENERIC_SPELL);
+    health->Set(0);
+    DelayCapture(ai);
+    context->GetValue<std::list<ObjectGuid>>("enemy player targets")->Reset();
+    context->GetValue<bool>("has enemy player targets")->Reset();
+    context->GetValue<ObjectGuid>("enemy player target")->Reset();
+    if (threat)
+    {
+        const ObjectGuid guid = threat->GetObjectGuid();
+        bot->SetSelectionGuid(guid);
+        bot->SetTarget(threat);
+        context->GetValue<ObjectGuid>("enemy player target")->Set(guid);
+        context->GetValue<ObjectGuid>("current target")->Set(guid);
+        context->GetValue<ObjectGuid>("attack target")->Set(guid);
+    }
+    return true;
 }
 
 bool IsCoveringCapture(PlayerbotAI* ai)
@@ -238,7 +368,7 @@ bool CanCapture(PlayerbotAI* ai, GameObject* flag)
     Player* bot = ai->GetBot();
     if (!IsArathi(bot) || !flag || flag->GetMap() != bot->GetMap() || !bot->CanUseBattleGroundObject() ||
         IsCapturing(bot) || !sServerFacade.isSpawned(flag) || flag->IsInUse() || flag->GetGoState() != GO_STATE_READY ||
-        !bot->CanInteract(flag) || !bot->IsWithinDistInMap(flag, INTERACTION_DISTANCE))
+        !bot->CanInteract(flag) || !bot->IsWithinDistInMap(flag, INTERACTION_DISTANCE) || !CanAttemptCapture(ai))
         return false;
 
     const auto event = bot->GetMap()->GetMapDataContainer().GetGameObjectEventIndex(flag->GetDbGuid());
@@ -265,9 +395,10 @@ bool CanCapture(PlayerbotAI* ai, GameObject* flag)
         candidate.eligible = member->GetPlayerbotAI() && !member->GetPlayerbotAI()->IsRealPlayer() &&
             member->GetPlayerbotAI()->CanMove() &&
             member->CanUseBattleGroundObject() && member->CanInteract(flag) &&
-            member->getAttackers().empty() && !member->IsNonMeleeSpellCasted(false) &&
+            !member->IsNonMeleeSpellCasted(false) &&
             member->IsWithinDistInMap(flag, INTERACTION_DISTANCE) && sServerFacade.IsWithinLOSInMap(member, flag) &&
-            assigned != plan.assignments.end() && assigned->second.node == event.event1;
+            assigned != plan.assignments.end() && assigned->second.node == event.event1 &&
+            CanAttemptCapture(member->GetPlayerbotAI());
         candidates.push_back(candidate);
     }
     return ElectCapturer(candidates) == bot->GetObjectGuid().GetRawValue();

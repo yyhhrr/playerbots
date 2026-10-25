@@ -180,6 +180,7 @@ namespace ai
                 creators["fire ward"] = [](PlayerbotAI* ai) { return new FireWardTrigger(ai); };
                 creators["frost ward"] = [](PlayerbotAI* ai) { return new FrostWardTrigger(ai); };
                 creators["blink"] = [](PlayerbotAI* ai) { return new BlinkTrigger(ai); };
+                creators["mage pvp retreat"] = [](PlayerbotAI* ai) { return new MagePvpRetreatTrigger(ai); };
                 creators["leveling arcane explosion"] = [](PlayerbotAI* ai) { return new LevelingArcaneExplosionTrigger(ai); };
                 creators["mage blizzard aoe"] = [](PlayerbotAI* ai) { return new MageGroundAoeTrigger(ai, "blizzard"); };
                 creators["mage flamestrike aoe"] = [](PlayerbotAI* ai) { return new MageGroundAoeTrigger(ai, "flamestrike"); };

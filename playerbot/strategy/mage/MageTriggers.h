@@ -18,6 +18,13 @@ namespace ai
         }
     };
 
+    class MagePvpRetreatTrigger : public Trigger
+    {
+    public:
+        MagePvpRetreatTrigger(PlayerbotAI* ai) : Trigger(ai, "mage pvp retreat") {}
+        bool IsActive() override;
+    };
+
     class LevelingArcaneExplosionTrigger : public Trigger
     {
     public:

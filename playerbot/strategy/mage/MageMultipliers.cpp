@@ -11,6 +11,11 @@ float MageAoeCommitMultiplier::GetValue(Action* action)
     if (!action || bot->getClass() != CLASS_MAGE || !IsMageAoeDisengageAction(action->getName()))
         return 1.0f;
 
+    // The leveling/PvE commitment must not disable PvP kiting or legal escapes
+    // from roots and stuns, even while an AOE channel or global cooldown is active.
+    if (ai->IsInPvp())
+        return 1.0f;
+
     const std::string name = action->getName();
     // Flee also handles harmful ground effects; keep that movement available.
     if ((name == "flee" || name == "runaway") && AI_VALUE2(bool, "has area debuff", "self target"))

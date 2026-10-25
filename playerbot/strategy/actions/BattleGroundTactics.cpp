@@ -9,6 +9,9 @@
 #include "playerbot/ArathiBasinCombat.h"
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
+#include "MotionGenerators/MotionMaster.h"
+#include "MotionGenerators/MovementGenerator.h"
+#include "Movement/MoveSpline.h"
 #include "float.h"
 #ifdef MANGOSBOT_TWO
 #include "Entities/Vehicle.h"
@@ -2327,7 +2330,25 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
     const bool carrier = ai::warsong::IsCarrier(bot);
     if (carrierOnly && !carrier) return false;
     if (regroupOnly && (carrier || ai::warsong::GetTask(ai) != ai::warsong::Task::Escort)) return false;
-    if (!carrier && !regroupOnly && bot->IsInCombat()) return false;
+    if (!carrier && !regroupOnly && bot->IsInCombat())
+    {
+        const auto engaged = [&](Unit* target)
+        {
+            return target && target->IsInWorld() && target->GetMap() == bot->GetMap() &&
+                target->IsAlive() && bot->CanAttack(target) &&
+                bot->IsWithinDistInMap(target, sPlayerbotAIConfig.sightDistance) &&
+                target->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true) &&
+                EnemyPlayersValue::IsAllowedWarsongTarget(target, bot);
+        };
+        // A lingering combat flag without a live fight must not pin an
+        // offensive player to midfield after the flag changes hands.
+        Unit* target = ai->GetUnit(context->GetValue<ObjectGuid>("current target")->Get());
+        if (engaged(target) || engaged(bot->GetVictim()))
+            return false;
+        for (Unit* attacker : bot->getAttackers())
+            if (engaged(attacker) && attacker->GetVictim() == bot)
+                return false;
+    }
 
     ai::PositionEntry goal = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
     if (!goal.isSet()) return false;
@@ -2356,6 +2377,43 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
             pet->AttackStop();
             pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
         }
+    }
+    if (ai::warsong::IsPressuring(ai))
+    {
+        auto* spline = context->GetValue<int>("manual int", "warsong pressure spline");
+        ai::PositionEntry& routeGoal = context->GetValue<ai::PositionMap&>("position")->Get()["warsong pressure route"];
+        // Objective checks remain responsive without restarting the same checked
+        // native point move every half second. Never reuse another action's move.
+        const bool sameGoal = routeGoal.isSet() && routeGoal.mapId == goal.mapId &&
+            routeGoal.x == goal.x && routeGoal.y == goal.y && routeGoal.z == goal.z;
+        if (ai->CanMove() && sameGoal && spline->Get() && !bot->movespline->Finalized() &&
+            bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE &&
+            bot->movespline->GetId() == uint32(spline->Get()))
+        {
+            SetDuration(500);
+            return true;
+        }
+        // These objectives are on the field below the enemy graveyard, not in
+        // the flag room. Leave elevated bases by their existing exits first;
+        // once on the field, navigate to the actual ground objective.
+        const bool elevatedBase = bot->GetPositionZ() > 330.0f &&
+            (bot->GetPositionX() < 1125.0f || bot->GetPositionX() > 1357.0f);
+        const uint32 previousSpline = bot->movespline->GetId();
+        const bool moved = elevatedBase ? selectObjectiveWp(vPaths_WS) :
+            moveToWarsongPoint(goal.mapId, goal.x, goal.y, goal.z, false, true);
+        if (moved && !bot->movespline->Finalized() && bot->movespline->GetId() != previousSpline &&
+            bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        {
+            spline->Set(int(bot->movespline->GetId()));
+            routeGoal.Set(goal.x, goal.y, goal.z, goal.mapId);
+        }
+        else
+        {
+            spline->Set(0);
+            routeGoal.Reset();
+        }
+        SetDuration(500);
+        return moved;
     }
     if (moveToObjective()) return true;
     if (selectObjectiveWp(vPaths_WS)) return true;

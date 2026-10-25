@@ -207,11 +207,21 @@ Task GetTask(PlayerbotAI* ai)
     return task >= int(Task::Attack) && task < int(Task::Carry) ? Task(task) : Task::Attack;
 }
 
+bool IsPressuring(PlayerbotAI* ai)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    BattleGroundWS* bg = ActiveWarsong(bot);
+    return bg && GetTask(ai) == Task::Attack &&
+        FlagStateValue(bg, bg->GetOtherTeam(bot->GetTeam())) == BG_WS_FLAG_STATE_ON_PLAYER &&
+        ai->GetAiObjectContext()->GetValue<bool>("manual bool", "warsong pressure")->Get();
+}
+
 bool SelectObjective(PlayerbotAI* ai, const Point& home, const Point& enemyHome,
     const std::vector<Point>& hidingSpots, WorldLocation& objective)
 {
     Player* bot = ai->GetBot();
     BattleGroundWS* bg = ActiveWarsong(bot);
+    ai->GetAiObjectContext()->GetValue<bool>("manual bool", "warsong pressure")->Set(false);
     if (!bg || !bot->IsAlive()) return false;
     const Flag ownFlag = ReadFlag(bg, bot->GetTeam(), home, bot->GetTeam());
     const Flag enemyFlag = ReadFlag(bg, bg->GetOtherTeam(bot->GetTeam()), enemyHome, bot->GetTeam());
@@ -242,11 +252,13 @@ bool SelectObjective(PlayerbotAI* ai, const Point& home, const Point& enemyHome,
     case Task::Attack:
         if (enemyFlag.state == FlagState::Dropped && enemyFlag.positionKnown)
             destination = enemyFlag.position;
-        else if (enemyFlag.state == FlagState::Carried || enemyFlag.state == FlagState::Respawning)
-            destination = {1227.446f, 1476.235f, 307.484f}; // Screen the midfield while the flag is away.
+        else if (enemyFlag.state == FlagState::Carried)
+            destination = PressurePoint(bot->GetTeam() == HORDE, task.route);
         break;
     }
     auto* context = ai->GetAiObjectContext();
+    context->GetValue<bool>("manual bool", "warsong pressure")->Set(
+        task.task == Task::Attack && enemyFlag.state == FlagState::Carried);
     context->GetValue<int>("manual int", "warsong task")->Set(int(task.task));
     context->GetValue<uint32>("bg role")->Set(task.route);
     context->GetValue<PositionMap&>("position")->Get()["bg objective"].Set(destination.x, destination.y, destination.z, bot->GetMapId());

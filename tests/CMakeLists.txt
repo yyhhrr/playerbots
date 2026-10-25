@@ -164,6 +164,24 @@ target_include_directories(warsong_movement_test PRIVATE "${CMAKE_CURRENT_BINARY
 target_compile_features(warsong_movement_test PRIVATE cxx_std_20)
 add_test(NAME warsong_movement COMMAND warsong_movement_test)
 
+# Exercise the actual role-to-destination block and Warsong objective movement.
+# Source overrides preserve reproducible regression checks against a saved baseline.
+set(WARSONG_TACTICS_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/WarsongTactics.cpp" CACHE FILEPATH "Warsong objective source under test")
+set(WARSONG_OBJECTIVE_ACTION_SOURCE "${warsong_route_source}" CACHE FILEPATH "Warsong objective movement source under test")
+extract_dungeon_source("${WARSONG_TACTICS_SOURCE}" "Task GetTask(" "bool SelectObjective(" warsong_task_source.inc)
+extract_dungeon_source("${WARSONG_TACTICS_SOURCE}" "bool SelectObjective(" "bool CanUseFlag(" warsong_select_objective_source.inc)
+extract_dungeon_source("${WARSONG_OBJECTIVE_ACTION_SOURCE}" "bool BGTactics::refreshWarsongObjective()" "bool BGTactics::wsgPaths()" warsong_objective_actions.inc)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/warsong_objective_positions.inc" "${warsong_positions}")
+add_executable(warsong_objective_test warsong_objective_test.cpp)
+target_include_directories(warsong_objective_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(warsong_objective_test PRIVATE cxx_std_20)
+file(READ "${WARSONG_TACTICS_SOURCE}" warsong_objective_source)
+string(FIND "${warsong_objective_source}" "bool IsPressuring(" warsong_pressure_query)
+if(warsong_pressure_query LESS 0)
+    target_compile_definitions(warsong_objective_test PRIVATE WARSONG_LEGACY_NO_PRESSURE_QUERY)
+endif()
+add_test(NAME warsong_objective COMMAND warsong_objective_test)
+
 # Compile the production recipe extractor with a minimal in-memory world store.
 # Copying preserves the source bytes while resolving core-only headers to test stubs.
 set(recipe_source_dir "${CMAKE_CURRENT_BINARY_DIR}/quest-exchange-recipe-source")

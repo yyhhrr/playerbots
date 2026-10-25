@@ -59,6 +59,23 @@ namespace ai
             return std::isfinite(distance) ? distance : std::numeric_limits<float>::max();
         }
 
+        inline Point PressurePoint(bool enemyAlliance, unsigned route)
+        {
+            // Existing graveyard exit routes include these ground waypoints
+            // after the landing. Never use the elevated resurrection platform.
+            const Point alliance[] = {
+                {1376.87f, 1529.48f, 321.66f},
+                {1369.76f, 1521.76f, 318.544f},
+                {1377.58f, 1535.88f, 321.053f}
+            };
+            const Point horde[] = {
+                {1088.42f, 1402.68f, 319.605f},
+                {1104.34f, 1409.4f, 315.304f},
+                {1091.57f, 1397.37f, 317.739f}
+            };
+            return (enemyAlliance ? alliance : horde)[route % 3u];
+        }
+
         // Keep one planner per battleground instance and faction. Flag positions
         // are supplied by the caller; unknown positions never imply map knowledge.
         class Planner

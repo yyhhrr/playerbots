@@ -31,7 +31,7 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     {
         Unit* rtiTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "rti target"));
 
-        if (rtiTarget && rtiTarget->IsInWorld() && rtiTarget->GetMapId() == bot->GetMapId() &&
+        if (rtiTarget && PossibleTargetsValue::CanPerceive(rtiTarget, bot) &&
             EnemyPlayersValue::IsAllowedWarsongTarget(rtiTarget, bot))
         {
             return { rtiTarget->GetObjectGuid() };
@@ -165,7 +165,8 @@ std::list<ObjectGuid> AttackersValue::Calculate()
     {
         // Controlled units are added after their owner was validated; validate
         // each unit against the carrier's own immediate self-defense boundary.
-        if (!EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+        if (!PossibleTargetsValue::CanPerceive(target, bot) ||
+            !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
             continue;
 
         result.push_back(target->GetObjectGuid());
@@ -342,6 +343,9 @@ bool AttackersValue::InCombat(Unit* target, Player* player, bool checkPullTarget
 bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool checkInCombat, bool validatePossibleTarget)
 {
     Player* playerToCheckAgainst = owner != nullptr ? owner : player;
+
+    if (!PossibleTargetsValue::CanPerceive(target, playerToCheckAgainst))
+        return false;
 
     // Validate possible target
     if (validatePossibleTarget && !PossibleTargetsValue::IsValid(target, playerToCheckAgainst))

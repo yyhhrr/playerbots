@@ -7,6 +7,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/DungeonMovement.h"
 
 using namespace ai;
@@ -218,6 +219,9 @@ bool AttackAction::Attack(Player* requester, Unit* target)
 
 bool AttackAction::PetAttack(Player* requester, Unit* target)
 {
+    if (!PossibleTargetsValue::CanPerceive(target, bot))
+        return false;
+
     // If we're done waiting to attack and there's mobs to cc, we can't use defensive/aggressive
     // because non passive pets will ignore our cc
     // Therefore, we'll keep passive so we can only attack the current target specifically
@@ -304,6 +308,11 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 
         return false;
     }
+
+    // Cached targets and explicit orders must not reveal an enemy the bot can
+    // no longer perceive, before turning to it or sending a pet to attack.
+    if (!PossibleTargetsValue::CanPerceive(target, bot))
+        return false;
 
     // Apply the same boundary to explicit attack/RTI orders before sending pets.
     if (!dungeon::CanTarget(ai, target))

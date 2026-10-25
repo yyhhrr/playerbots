@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "InvalidTargetValue.h"
 #include "PossibleAttackTargetsValue.h"
+#include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
@@ -19,6 +20,11 @@ bool InvalidTargetValue::Calculate()
 
     // A stale cached attackers list must not preserve a target on another floor.
     if (!dungeon::CanTarget(ai, target))
+        return true;
+
+    // Neither the duel shortcut nor a cached attackers list can keep tracking a
+    // stealth/invisible target after native detection has been lost.
+    if (!PossibleTargetsValue::CanPerceive(target, bot))
         return true;
 
     Unit* duelTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "duel target"));

@@ -341,6 +341,8 @@ bool PossibleAttackTargetsValue::IsValid(Unit* target, Player* player, float ran
 
 bool PossibleAttackTargetsValue::IsPossibleTarget(Unit* target, Player* player, float range, bool ignoreCC)
 {
+    if (!PossibleTargetsValue::CanPerceive(target, player))
+        return false;
     if(target)
     {
         // If the target is in an attackable distance

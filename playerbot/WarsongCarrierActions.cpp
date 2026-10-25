@@ -39,7 +39,8 @@ namespace
 
     bool IsBear(PlayerbotAI* ai)
     {
-        return ai->HasAura("dire bear form", ai->GetBot()) || ai->HasAura("bear form", ai->GetBot());
+        const ShapeshiftForm form = ai->GetBot()->GetShapeshiftForm();
+        return form == FORM_DIREBEAR || form == FORM_BEAR;
     }
 
     const char* BearSpell(PlayerbotAI* ai)
@@ -127,9 +128,11 @@ namespace
         switch (state.kind)
         {
         case CarrierKind::Druid:
-            state.inCat = ai->HasAura("cat form", bot);
+            // The native form field is authoritative even if an aura-name
+            // lookup is stale or localized. Never request the active form again.
+            state.inCat = bot->GetShapeshiftForm() == FORM_CAT;
             state.inBear = IsBear(ai);
-            state.inTravel = ai->HasAura("travel form", bot);
+            state.inTravel = bot->GetShapeshiftForm() == FORM_TRAVEL;
             state.dashActive = ai->HasAura("dash", bot);
             state.barkskinActive = ai->HasAura("barkskin", bot);
             state.catReady = CanUse(ai, "cat form");
@@ -151,7 +154,7 @@ namespace
         }
         case CarrierKind::Shaman:
         {
-            state.inWolf = ai->HasAura("ghost wolf", bot);
+            state.inWolf = bot->GetShapeshiftForm() == FORM_GHOSTWOLF;
             state.wolfReady = CanUse(ai, "ghost wolf");
             const SpellEntry* entry = sServerFacade.LookupSpellInfo(KnownSpell(ai, "ghost wolf"));
             state.wolfInstant = entry && GetSpellCastTime(entry, bot) == 0;
@@ -242,13 +245,25 @@ bool WarsongCarrierMobilityAction::Execute(Event& event)
     const uint32 id = warsong::KnownSpell(ai, name);
     const SpellEntry* entry = sServerFacade.LookupSpellInfo(id);
     if (!entry) return false;
-    if (GetSpellCastTime(entry, bot) > 0) ai->StopMoving();
+    const uint32 castTime = GetSpellCastTime(entry, bot);
+    if (castTime > 0) ai->StopMoving();
     uint32 spellDuration = 0;
     const bool result = ai->CastSpell(id, bot, nullptr, false, &spellDuration);
     if (!result) return false;
+    const bool formChange = choice == warsong::CarrierAbility::TravelForm || choice == warsong::CarrierAbility::CatForm ||
+        choice == warsong::CarrierAbility::BearForm;
+    if (formChange && castTime == 0)
+    {
+        // Instant self-shapeshifts apply their native form during SpellStart.
+        // A failed/no-op cast must not consume the carrier's movement update.
+        const ShapeshiftForm form = bot->GetShapeshiftForm();
+        const bool applied = (choice == warsong::CarrierAbility::TravelForm && form == FORM_TRAVEL) ||
+            (choice == warsong::CarrierAbility::CatForm && form == FORM_CAT) ||
+            (choice == warsong::CarrierAbility::BearForm && (form == FORM_BEAR || form == FORM_DIREBEAR));
+        if (!applied) return false;
+    }
     SetDuration(std::max(spellDuration, uint32(sPlayerbotAIConfig.reactDelay)));
-    if (choice == warsong::CarrierAbility::TravelForm || choice == warsong::CarrierAbility::CatForm ||
-        choice == warsong::CarrierAbility::BearForm)
+    if (formChange)
     {
         changedForm = true;
         lastFormChange = WorldTimer::getMSTime();

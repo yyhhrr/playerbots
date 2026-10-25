@@ -1,5 +1,6 @@
 #pragma once
 #include "playerbot/strategy/actions/GenericActions.h"
+#include "playerbot/WarsongTactics.h"
 
 namespace ai
 {
@@ -313,6 +314,11 @@ namespace ai
 		
 		virtual bool isUseful()
 		{
+            // The carrier's dedicated mobility action chooses travel, dash or a
+            // defensive form. This generic flag trigger must not cancel that form.
+            if (warsong::IsCarrier(bot) || !CastBuffSpellAction::isUseful())
+                return false;
+
 			bool firstmount = bot->GetLevel() >=
 #ifdef MANGOSBOT_ZERO
 				40
@@ -325,7 +331,7 @@ namespace ai
 #endif
 				;
 
-			// useful if no mount or with wsg flag
+            // Ordinary travel behavior when unmounted or below mount level.
 			return !bot->IsMounted() || !firstmount;
 		}
 	};

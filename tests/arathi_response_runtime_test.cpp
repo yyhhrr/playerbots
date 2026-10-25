@@ -105,6 +105,13 @@ struct Player : Unit
 };
 namespace ai
 {
+    struct PossibleTargetsValue
+    {
+        static bool CanPerceive(Unit* target, Player* observer)
+        {
+            return target && observer && target->IsVisibleForOrDetect(observer, observer->GetCamera().GetBody(), true);
+        }
+    };
     struct PositionEntry
     {
         float x = 0, y = 0, z = 0;

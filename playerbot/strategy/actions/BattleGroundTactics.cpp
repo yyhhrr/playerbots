@@ -9,6 +9,7 @@
 #include "playerbot/ArathiBasinCombat.h"
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "MotionGenerators/MotionMaster.h"
 #include "MotionGenerators/MovementGenerator.h"
 #include "Movement/MoveSpline.h"
@@ -2337,7 +2338,7 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
             return target && target->IsInWorld() && target->GetMap() == bot->GetMap() &&
                 target->IsAlive() && bot->CanAttack(target) &&
                 bot->IsWithinDistInMap(target, sPlayerbotAIConfig.sightDistance) &&
-                target->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true) &&
+                PossibleTargetsValue::CanPerceive(target, bot) &&
                 EnemyPlayersValue::IsAllowedWarsongTarget(target, bot);
         };
         // A lingering combat flag without a live fight must not pin an

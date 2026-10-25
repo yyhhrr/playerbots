@@ -7,6 +7,7 @@
 #include "playerbot/WarsongSpellPolicy.h"
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/ArathiBasinTactics.h"
+#include "playerbot/TargetPerception.h"
 
 #include "MotionGenerators/MovementGenerator.h"
 #include "Grids/GridNotifiers.h"
@@ -602,6 +603,11 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         bot->StopMoving();
     }
+
+    // Loss of a target must also stop native chase while the internal engine is
+    // waiting for movement or a cast, before it can face the hidden position.
+    if (perception::ReleaseLostTargets(this))
+        ResetAIInternalUpdateDelay();
 
     // Banner casts can suspend the internal engine for their full cast time.
     // Check live attacks outside that delay so a threatened opener can fight back.
@@ -4510,6 +4516,12 @@ bool PlayerbotAI::CanCastSpell(std::string name, Unit* target, uint8 effectMask,
 
 bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, bool checkHasSpell, Item* itemTarget, bool ignoreRange, bool ignoreInCombat, bool ignoreMount, SpellCastResult* checkResult)
 {
+    if (!perception::CanUseTarget(this, target))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_BAD_TARGETS;
+        return false;
+    }
     if (!IsSpellSafeForWarsong(spellid, target))
     {
         if (checkResult)
@@ -5043,6 +5055,8 @@ bool PlayerbotAI::CastSpell(std::string name, Unit* target, Item* itemTarget, bo
 
 bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool waitForSpell, uint32* outSpellDuration)
 {
+    if (!perception::CanUseTarget(this, target))
+        return false;
     if (!IsSpellSafeForWarsong(spellId, target))
         return false;
 
@@ -5610,6 +5624,8 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
 
 bool PlayerbotAI::CastPetSpell(uint32 spellId, Unit* target)
 {
+    if (!perception::CanUseTarget(this, target))
+        return false;
     Pet* pet = bot->GetPet();
     if (pet && spellId && pet->HasSpell(spellId))
     {

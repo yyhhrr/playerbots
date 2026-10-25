@@ -90,6 +90,42 @@ bool PossibleTargetsValue::IsAttackable(Unit* target, Player* player)
            player->CanAttack(target);
 }
 
+bool PossibleTargetsValue::CanPerceive(Unit* target, Player* observer)
+{
+    return observer && CanPerceive(target, observer, observer->GetCamera().GetBody());
+}
+
+bool PossibleTargetsValue::CanPerceive(Unit* target, Unit* observer, const WorldObject* viewPoint)
+{
+    if (!target || !observer || !viewPoint || !target->IsInWorld() || !observer->IsInWorld() ||
+        target->GetMap() != observer->GetMap() || !target->IsVisibleForOrDetect(observer, viewPoint, true))
+        return false;
+
+    if (target->GetVisibility() != VISIBILITY_GROUP_STEALTH || target->getAttackers().empty())
+        return true;
+
+    // The core treats an existing attacker link as revealing stealth. A bot's
+    // stale autoattack must not sustain that link after losing the opponent.
+    // Preserve actual reveals, then apply the core's own stealth geometry.
+    Player* player = dynamic_cast<Player*>(observer);
+    if (target == observer || target->GetMasterGuid() == observer->GetObjectGuid() ||
+        (player && player->IsGameMaster()) || target->IsFogOfWarVisibleStealth(observer) ||
+        (observer->CanAttack(target) && target->HasAuraTypeWithCaster(SPELL_AURA_MOD_STALKED, observer->GetObjectGuid())))
+        return true;
+
+    const float maxDistance = player ? MAX_PLAYER_STEALTH_DETECT_RANGE :
+        static_cast<Creature*>(observer)->GetAttackDistance(target);
+    if (observer->IsStunned() || !viewPoint->isInFrontInMap(target, maxDistance))
+        return false;
+    const float distance = target->GetVisibilityData().GetStealthVisibilityDistance(observer,
+        target->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PLAYER_CONTROLLED));
+    if (distance <= 0.0f || target->GetDistance(viewPoint, true, DIST_CALC_NONE) > distance * distance)
+        return false;
+    float x, y, z;
+    viewPoint->GetPosition(x, y, z);
+    return target->IsWithinLOS(x, y, z);
+}
+
 bool PossibleTargetsValue::IsValid(Unit* target, Player* player, bool ignoreLos)
 {
     // If the target is available
@@ -113,17 +149,10 @@ bool PossibleTargetsValue::IsValid(Unit* target, Player* player, bool ignoreLos)
             return false;
         }
 
-        bool isInCombatWithTarget = target->GetVictim() == player || 
-                                     target->getThreatManager().getThreat(player) > 0.0f ||
-                                     player->IsInCombat();
-
-        if (!ignoreLos && !isInCombatWithTarget)
-        {
-            if (!target->IsVisibleForOrDetect(player, player->GetCamera().GetBody(), true))
-            {
-                return false;
-            }
-        }
+        // Combat history and "no LOS" scans never grant stealth detection.
+        // Let the core apply level, facing, range and detection auras each time.
+        if (!CanPerceive(target, player))
+            return false;
         if (!CanFreeMoveValue::CanFreeAttack(player->GetPlayerbotAI(), target))
             return false;
 

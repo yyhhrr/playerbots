@@ -291,6 +291,23 @@ int main()
         Check(scenario.action.moves.empty(), "same-roof combat keeps current position");
     }
 
+    // A returning carrier has a forward route at both enemy tunnel exits and
+    // again on reaching midfield, for every stable route preference.
+    for (uint32 role = 0; role != 10; ++role)
+        for (bool towardAlliance : {false, true})
+            for (bool midfield : {false, true})
+            {
+                const Position start = midfield ? Position{1227.446f, 1476.235f, 307.484f, 0} :
+                    (towardAlliance ? Position{1125.778f, 1460.06f, 316.f, 0} :
+                        Position{1351.759f, 1462.368f, 323.674f, 0});
+                Scenario scenario(start, towardAlliance ? allianceBase : hordeBase, role);
+                Check(scenario.action.wsgPaths(), "a carrier leaving the tunnel or midfield has an accepted next route segment");
+                Check(scenario.action.moves.size() == 1, "carrier route dispatches exactly one forward segment");
+                const Movement& next = scenario.action.moves.front();
+                Check(towardAlliance ? next.x > start.x : next.x < start.x,
+                    "the actual carrier waypoint advances toward its home rather than waiting in midfield");
+            }
+
     // Broad route regressions: a single update must never replace a waypoint
     // with a second one, and a rejected movement must never report success.
     for (uint32 role = 0; role != 10; ++role)

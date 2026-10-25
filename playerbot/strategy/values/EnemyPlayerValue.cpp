@@ -180,6 +180,8 @@ std::list<ObjectGuid> EnemyPlayersValue::Calculate()
 
 bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
 {
+    if (!PossibleTargetsValue::CanPerceive(target, player))
+        return false;
     if (target)
     {
         // If the target is a player
@@ -329,25 +331,23 @@ bool HasEnemyPlayersValue::Calculate()
 ObjectGuid EnemyPlayerValue::Calculate()
 {
     // Prioritize the duel opponent
-    if(bot->duel && bot->duel->opponent && !sServerFacade.IsFriendlyTo(bot->duel->opponent, bot))
+    if(bot->duel && bot->duel->opponent && !sServerFacade.IsFriendlyTo(bot->duel->opponent, bot) &&
+        PossibleTargetsValue::CanPerceive(bot->duel->opponent, bot))
     {
         return bot->duel->opponent->GetObjectGuid();
     }
 
     Unit* bestEnemyPlayer = nullptr;
     std::list<ObjectGuid> enemyPlayers = AI_VALUE(std::list<ObjectGuid>, "enemy player targets");
-    // Flag pickup and an attacker's retreat must take effect immediately even if
-    // the enemy-player list was calculated before the bot started carrying.
-    if (GetActiveWarsong(bot))
+    // Visibility and role changes must invalidate stale cached opponents before
+    // any battleground-specific or ordinary target scoring can reuse them.
+    for (auto it = enemyPlayers.begin(); it != enemyPlayers.end();)
     {
-        for (auto it = enemyPlayers.begin(); it != enemyPlayers.end();)
-        {
-            Unit* target = ai->GetUnit(*it);
-            if (!target || !PossibleTargetsValue::IsValid(target, bot) || !EnemyPlayersValue::IsValid(target, bot))
-                it = enemyPlayers.erase(it);
-            else
-                ++it;
-        }
+        Unit* target = ai->GetUnit(*it);
+        if (!target || !PossibleTargetsValue::IsValid(target, bot) || !EnemyPlayersValue::IsValid(target, bot))
+            it = enemyPlayers.erase(it);
+        else
+            ++it;
     }
     if (!enemyPlayers.empty())
     {

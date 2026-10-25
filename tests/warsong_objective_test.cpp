@@ -115,6 +115,13 @@ struct Player : Unit
 struct PlayerbotAIConfig { float sightDistance = 60.0f; } sPlayerbotAIConfig;
 namespace ai
 {
+    struct PossibleTargetsValue
+    {
+        static bool CanPerceive(Unit* target, Player* observer)
+        {
+            return target && observer && target->IsVisibleForOrDetect(observer, observer->GetCamera().GetBody(), true);
+        }
+    };
     struct PositionEntry
     {
         float x = 0, y = 0, z = 0;
@@ -538,6 +545,23 @@ int main()
         Check(f.action.moveWarsongObjective(false, false) && f.action.waypoints == 2,
             "completing an elevated exit segment allows the next waypoint to be dispatched");
     }
+    for (unsigned team : {ALLIANCE, HORDE})
+        for (bool midfield : {false, true})
+        {
+            Fixture f; f.bot.team = team; f.bot.carrier = true;
+            f.OurTeamCarries(); f.ai.enemy.carrier = f.bot.guid;
+            f.bot.x = midfield ? 1227.446f : (team == ALLIANCE ? 1125.778f : 1351.759f);
+            f.bot.y = midfield ? 1476.235f : 1462.368f;
+            f.bot.z = midfield ? 307.484f : 323.674f;
+            Check(f.action.refreshWarsongObjective() && !IsPressuring(&f.ai),
+                "a carrier leaving either tunnel keeps its delivery assignment");
+            f.action.name = "warsong carry";
+            Check(f.action.moveWarsongObjective(true, false) && f.action.orders.size() == 1,
+                "the actual carrier movement action continues after the mobility form has settled");
+            Check(f.action.orders.front().ignoreEnemyTargets &&
+                (team == ALLIANCE ? f.action.orders.front().x > f.bot.x : f.action.orders.front().x < f.bot.x),
+                "carrier delivery advances homeward and bypasses unrelated combat clipping");
+        }
     std::cout << checks << " Warsong objective checks, " << failures << " failures\n";
     return failures ? EXIT_FAILURE : EXIT_SUCCESS;
 }

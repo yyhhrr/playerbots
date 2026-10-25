@@ -5,6 +5,7 @@
 #include "playerbot/ServerFacade.h"
 #include "BattleGround/BattleGroundAB.h"
 #include "playerbot/strategy/values/PositionValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include <array>
 #include <map>
 #include <mutex>
@@ -241,7 +242,7 @@ Unit* GetImmediateCaptureThreat(PlayerbotAI* ai)
             }
         }
         const CaptureThreat threat = { distance, true,
-            enemy->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true),
+            PossibleTargetsValue::CanPerceive(enemy, bot),
             sServerFacade.IsWithinLOSInMap(bot, enemy),
             enemy->HasAuraType(SPELL_AURA_MOD_STUN) || enemy->HasAuraType(SPELL_AURA_MOD_CONFUSE) ||
                 enemy->HasAuraType(SPELL_AURA_MOD_FEAR),

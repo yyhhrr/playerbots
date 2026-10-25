@@ -13,6 +13,8 @@ namespace ai
           NearestUnitsValue(ai, name, range, ignoreLos), Qualified() {}
 
         std::list<ObjectGuid> Calculate() override;
+        static bool CanPerceive(Unit* target, Player* observer);
+        static bool CanPerceive(Unit* target, Unit* observer, const WorldObject* viewPoint);
         static bool IsValid(Unit* target, Player* player, bool ignoreLos = false);
 
     protected:

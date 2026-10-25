@@ -5,6 +5,7 @@
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/DungeonMovement.h"
 
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
@@ -95,7 +96,10 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
         return false;
     }
 
-    if (abs(wo->GetPositionZ() - bot->GetPositionZ()) > INTERACTION_DISTANCE)
+    // Dungeon stairs may change height normally; validate their actual route
+    // instead of rejecting every corpse above/below the interaction height.
+    if ((dungeon::IsActive(ai) && !dungeon::CanLoot(ai, wo)) ||
+        (!dungeon::IsActive(ai) && abs(wo->GetPositionZ() - bot->GetPositionZ()) > INTERACTION_DISTANCE))
     {
         ai->TellDebug(requester, "Object too high or low.", "debug loot");
         return false;

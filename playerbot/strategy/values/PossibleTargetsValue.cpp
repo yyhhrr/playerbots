@@ -3,6 +3,7 @@
 #include "PossibleTargetsValue.h"
 #include "PossibleAttackTargetsValue.h"
 #include "FreeMoveValues.h"
+#include "playerbot/DungeonMovement.h"
 
 #include "playerbot/ServerFacade.h"
 #include "Grids/GridNotifiers.h"
@@ -124,6 +125,9 @@ bool PossibleTargetsValue::IsValid(Unit* target, Player* player, bool ignoreLos)
             }
         }
         if (!CanFreeMoveValue::CanFreeAttack(player->GetPlayerbotAI(), target))
+            return false;
+
+        if (!dungeon::CanTarget(player->GetPlayerbotAI(), target))
             return false;
 
         return true;

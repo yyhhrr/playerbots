@@ -3,6 +3,55 @@ project(playerbots_tests LANGUAGES CXX)
 
 enable_testing()
 
+add_executable(dungeon_movement_policy_test dungeon_movement_policy_test.cpp)
+target_include_directories(dungeon_movement_policy_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(dungeon_movement_policy_test PRIVATE cxx_std_20)
+add_test(NAME dungeon_movement_policy COMMAND dungeon_movement_policy_test)
+
+# Compile the complete shared dungeon-safety implementation with an in-memory
+# map and navmesh driver, retaining production policy and caching behavior.
+set(dungeon_source_dir "${CMAKE_CURRENT_BINARY_DIR}/dungeon-movement-source")
+foreach(dungeon_file IN ITEMS DungeonMovement.cpp DungeonMovement.h DungeonMovementPolicy.h)
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/${dungeon_file}" "${dungeon_source_dir}/${dungeon_file}" COPYONLY)
+endforeach()
+add_executable(dungeon_movement_runtime_test dungeon_movement_runtime_test.cpp "${dungeon_source_dir}/DungeonMovement.cpp")
+target_include_directories(dungeon_movement_runtime_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/dungeon_movement_stubs" "${dungeon_source_dir}")
+target_compile_features(dungeon_movement_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(dungeon_movement_runtime_test PRIVATE MANGOSBOT_ZERO CMANGOS)
+add_test(NAME dungeon_movement_runtime COMMAND dungeon_movement_runtime_test)
+
+# Execute the production spline submission and movement-state lifecycle with a
+# deterministic clock and the complete shared dungeon route implementation.
+function(extract_dungeon_source source marker end_marker output)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
+    file(READ "${source}" dungeon_source)
+    string(FIND "${dungeon_source}" "${marker}" dungeon_begin)
+    if(end_marker STREQUAL "")
+        string(LENGTH "${dungeon_source}" dungeon_end)
+    else()
+        string(FIND "${dungeon_source}" "${end_marker}" dungeon_end)
+    endif()
+    if(dungeon_begin LESS 0 OR dungeon_end LESS dungeon_begin)
+        message(FATAL_ERROR "Dungeon movement extraction markers are missing in ${source}")
+    endif()
+    math(EXPR dungeon_length "${dungeon_end} - ${dungeon_begin}")
+    string(SUBSTRING "${dungeon_source}" ${dungeon_begin} ${dungeon_length} dungeon_function)
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${output}" "${dungeon_function}")
+endfunction()
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/MovementActions.cpp"
+    "bool MovementAction::MoveAlongDungeonPath(" "void MovementAction::CreateWp(" dungeon_motion_source.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/LastMovementValue.h"
+    "    class LastMovement\n" "    class LastMovementValue" dungeon_last_movement.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/RangeTriggers.h"
+    "    class UpdateFollowTrigger" "    class StopFollowTrigger" dungeon_follow_trigger.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/DungeonSafeStrategy.cpp"
+    "void DungeonSafeStrategy::OnStrategyAdded(" "" dungeon_strategy_hooks.inc)
+add_executable(dungeon_motion_test dungeon_motion_test.cpp "${dungeon_source_dir}/DungeonMovement.cpp")
+target_include_directories(dungeon_motion_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/dungeon_movement_stubs" "${dungeon_source_dir}")
+target_compile_features(dungeon_motion_test PRIVATE cxx_std_20)
+target_compile_definitions(dungeon_motion_test PRIVATE MANGOSBOT_ZERO CMANGOS DUNGEON_MOTION_TEST)
+add_test(NAME dungeon_motion COMMAND dungeon_motion_test)
+
 foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy enchanting_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy warsong_policy warsong_combat warsong_carrier_policy warsong_carrier_abilities warsong_spell_policy)
     add_executable(${test_name}_test ${test_name}_test.cpp)
     target_include_directories(${test_name}_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")

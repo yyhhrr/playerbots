@@ -5,6 +5,7 @@
 #include "EnemyPlayerValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
@@ -15,6 +16,10 @@ bool InvalidTargetValue::Calculate()
     {
         return true;
     }
+
+    // A stale cached attackers list must not preserve a target on another floor.
+    if (!dungeon::CanTarget(ai, target))
+        return true;
 
     Unit* duelTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "duel target"));
     if (duelTarget && duelTarget == target)

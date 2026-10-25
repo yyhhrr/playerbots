@@ -7,6 +7,7 @@
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/LootObjectStack.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
@@ -44,7 +45,8 @@ bool FollowAction::isUseful()
 
     if (followTarget && followTarget->IsPlayer())
     {
-        if (AI_VALUE(GuidPosition, "rpg target") && CanFreeMoveValue::CanFreeMoveTo(ai, AI_VALUE(GuidPosition, "rpg target")))
+        if (AI_VALUE(GuidPosition, "rpg target") && CanFreeMoveValue::CanFreeMoveTo(ai, AI_VALUE(GuidPosition, "rpg target")) &&
+            (!dungeon::IsActive(ai) || dungeon::CanMoveTo(ai, AI_VALUE(GuidPosition, "rpg target"))))
         {
             return false;
         }
@@ -65,7 +67,8 @@ bool FollowAction::isUseful()
             distance = sServerFacade.GetDistance(bot, followTarget);
         else
 #endif
-        distance = sServerFacade.GetDistance2d(bot, followTarget);
+        distance = dungeon::IsActive(ai) ? WorldPosition(bot).distance(WorldPosition(followTarget)) :
+            sServerFacade.GetDistance2d(bot, followTarget);
     }
     else
     {
@@ -79,7 +82,8 @@ bool FollowAction::isUseful()
             distance = sServerFacade.GetDistance(bot, loc.coord_x, loc.coord_y, loc.coord_z);
         else
 #endif
-        distance = sServerFacade.GetDistance2d(bot, loc.coord_x, loc.coord_y);
+        distance = dungeon::IsActive(ai) ? WorldPosition(bot).distance(WorldPosition(loc)) :
+            sServerFacade.GetDistance2d(bot, loc.coord_x, loc.coord_y);
     }
 
     if (sServerFacade.IsDistanceGreaterThan(distance, sPlayerbotAIConfig.sightDistance))
@@ -195,7 +199,8 @@ bool FleeToMasterAction::isUseful()
 
     if (fTarget && fTarget->IsPlayer())
     {
-        if (AI_VALUE(GuidPosition, "rpg target") && CanFreeMoveValue::CanFreeMoveTo(ai, AI_VALUE(GuidPosition, "rpg target")))
+        if (AI_VALUE(GuidPosition, "rpg target") && CanFreeMoveValue::CanFreeMoveTo(ai, AI_VALUE(GuidPosition, "rpg target")) &&
+            (!dungeon::IsActive(ai) || dungeon::CanMoveTo(ai, AI_VALUE(GuidPosition, "rpg target"))))
             return false;
     }
 

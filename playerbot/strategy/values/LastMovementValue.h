@@ -19,9 +19,16 @@ namespace ai
             lastFollow = other.lastFollow;
             lastAreaTrigger = other.lastAreaTrigger;
             lastTransportEntry = other.lastTransportEntry;
+            lastFlee = other.lastFlee;
             lastPath = other.lastPath;
             lastMoveShort = other.lastMoveShort;
             nextTeleport = other.nextTeleport;
+            dungeonGoal = other.dungeonGoal;
+            dungeonSplineId = other.dungeonSplineId;
+            dungeonRepathTime = other.dungeonRepathTime;
+            dungeonPurpose = other.dungeonPurpose;
+            dungeonWalking = other.dungeonWalking;
+            dungeonHazards = other.dungeonHazards;
             moveEvent = Event();
         }
 
@@ -34,6 +41,12 @@ namespace ai
             lastFlee = 0;
             lastMoveShort = WorldPosition();
             nextTeleport = 0;
+            dungeonGoal = WorldPosition();
+            dungeonSplineId = 0;
+            dungeonRepathTime = 0;
+            dungeonPurpose = 0;
+            dungeonWalking = false;
+            dungeonHazards.clear();
             moveEvent = Event();
         }
 
@@ -54,6 +67,12 @@ namespace ai
         TravelPath lastPath;
         WorldPosition lastMoveShort;
         time_t nextTeleport;
+        WorldPosition dungeonGoal;
+        uint32 dungeonSplineId;
+        uint32 dungeonRepathTime;
+        uint8 dungeonPurpose;
+        bool dungeonWalking;
+        std::vector<std::pair<WorldPosition, float>> dungeonHazards;
         Event moveEvent;
     };
 

@@ -4,6 +4,7 @@
 
 #include "playerbot/ServerFacade.h"
 #include "Arrow.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
@@ -24,7 +25,11 @@ WorldLocation Stance::GetLocation()
     if (!target)
         return Formation::NullLocation;
 
-    return GetLocationInternal();
+    const WorldLocation location = GetLocationInternal();
+    if (dungeon::IsActive(ai) && !Formation::IsNullLocation(location) &&
+        !dungeon::IsSafeLocalPoint(ai, WorldPosition(target), WorldPosition(location)))
+        return Formation::NullLocation;
+    return location;
 }
 
 WorldLocation Stance::GetNearLocation(float angle, float distance)

@@ -10,6 +10,8 @@
 
 namespace ai
 {
+    namespace dungeon { enum class MovePurpose; }
+
     class MovementAction : public Action
     {
     public:
@@ -20,6 +22,8 @@ namespace ai
     protected:
         static bool MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport);
         static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport);
+
+        bool MoveAlongDungeonPath(const WorldPosition& destination, dungeon::MovePurpose purpose, bool walking = false);
 
         bool ChaseTo(WorldObject *obj, float distance = 0.0f, float angle = 0.0f);
         bool MoveNear(uint32 mapId, float x, float y, float z, float distance = sPlayerbotAIConfig.contactDistance);

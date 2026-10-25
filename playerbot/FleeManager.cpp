@@ -5,6 +5,7 @@
 #include "Groups/Group.h"
 #include "strategy/values/MoveStyleValue.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
@@ -74,13 +75,18 @@ void FleeManager::calculatePossibleDestinations(std::list<FleePoint*> &points)
             {
                 if (intersectsOri(angle, enemyOri, angleIncrement)) continue;
 
-                float x = botPosX + cos(angle) * maxAllowedDistance, y = botPosY + sin(angle) * maxAllowedDistance, z = botPosZ + CONTACT_DISTANCE;
+                float x = botPosX + cos(angle) * dist, y = botPosY + sin(angle) * dist, z = botPosZ + CONTACT_DISTANCE;
                 if (MoveStyleValue::CheckForEdges(bot->GetPlayerbotAI()) && isTooCloseToEdge(x, y, z, angle)) continue;
 
                 if (forceMaxDistance && sServerFacade.IsDistanceLessThan(sServerFacade.GetDistance2d(bot, x, y), maxAllowedDistance - sPlayerbotAIConfig.tooCloseDistance))
                     continue;
 
                 bot->UpdateAllowedPositionZ(x, y, z);
+
+                const WorldPosition destination(bot->GetMapId(), x, y, z);
+                if (dungeon::IsActive(ai) &&
+                    (!dungeon::IsSafeLocalPoint(ai, startPosition, destination) || !dungeon::CanMoveTo(ai, destination)))
+                    continue;
 
                 const TerrainInfo* terrain = startPosition.getTerrain();
                 if (terrain && terrain->IsInWater(x, y, z))

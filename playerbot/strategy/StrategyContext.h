@@ -51,6 +51,7 @@
 #endif
 
 #include "generic/DungeonStrategy.h"
+#include "generic/DungeonSafeStrategy.h"
 #include "generic/OnyxiasLairDungeonStrategies.h"
 #include "generic/MoltenCoreDungeonStrategies.h"
 #include "generic/BlackwingLairDungeonStrategies.h"
@@ -169,6 +170,7 @@ namespace ai
 
             // Dungeon Strategies
             creators["dungeon"] = [](PlayerbotAI* ai) { return new DungeonStrategy(ai); };
+            creators["dungeon safe"] = [](PlayerbotAI* ai) { return new DungeonSafeStrategy(ai); };
             creators["onyxias lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairDungeonStrategy(ai); };
             creators["molten core"] = [](PlayerbotAI* ai) { return new MoltenCoreDungeonStrategy(ai); };
             creators["blackwing lair"] = [](PlayerbotAI* ai) { return new BlackwingLairDungeonStrategy(ai); };

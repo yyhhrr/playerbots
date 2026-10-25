@@ -4,6 +4,7 @@
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/DungeonMovement.h"
 using namespace ai;
 
 std::list<ObjectGuid> AoeCountValue::FindMaxDensity(Player* bot, float range)
@@ -60,27 +61,35 @@ WorldLocation AoePositionValue::Calculate()
     if (group.empty())
         return WorldLocation();
 
-    // Note: don't know where these values come from or even used.
-    float x1, y1, x2, y2;
+    Unit* anchor = nullptr;
+    float x1 = 0.0f, y1 = 0.0f, x2 = 0.0f, y2 = 0.0f;
     for (std::list<ObjectGuid>::iterator i = group.begin(); i != group.end(); ++i)
     {
         Unit* unit = bot->GetPlayerbotAI()->GetUnit(*i);
         if (!unit)
             continue;
 
-        if (i == group.begin() || x1 > unit->GetPositionX())
+        if (!anchor || x1 > unit->GetPositionX())
             x1 = unit->GetPositionX();
-        if (i == group.begin() || x2 < unit->GetPositionX())
+        if (!anchor || x2 < unit->GetPositionX())
             x2 = unit->GetPositionX();
-        if (i == group.begin() || y1 > unit->GetPositionY())
+        if (!anchor || y1 > unit->GetPositionY())
             y1 = unit->GetPositionY();
-        if (i == group.begin() || y2 < unit->GetPositionY())
+        if (!anchor || y2 < unit->GetPositionY())
             y2 = unit->GetPositionY();
+        if (!anchor)
+            anchor = unit;
     }
+    if (!anchor)
+        return WorldLocation();
     float x = (x1 + x2) / 2;
     float y = (y1 + y2) / 2;
-    float z = bot->GetPositionZ() + CONTACT_DISTANCE;;
+    const bool groundSafety = dungeon::IsActive(bot->GetPlayerbotAI());
+    float z = (groundSafety ? anchor->GetPositionZ() : bot->GetPositionZ()) + CONTACT_DISTANCE;
     bot->UpdateAllowedPositionZ(x, y, z);
+    if (groundSafety && !dungeon::IsSafeLocalPoint(bot->GetPlayerbotAI(), WorldPosition(anchor),
+        WorldPosition(bot->GetMapId(), x, y, z)))
+        return WorldPosition(anchor);
     return WorldLocation(bot->GetMapId(), x, y, z, 0);
 }
 

@@ -5,10 +5,23 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "Arrow.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
 WorldLocation Formation::NullLocation = WorldLocation();
+
+namespace
+{
+    WorldLocation SafeFormationLocation(PlayerbotAI* ai, Unit* leader, const WorldLocation& location)
+    {
+        if (!dungeon::IsActive(ai) || !leader || Formation::IsNullLocation(location))
+            return location;
+        if (!dungeon::IsSafeLocalPoint(ai, WorldPosition(leader), WorldPosition(location)))
+            return WorldPosition(leader);
+        return location;
+    }
+}
 
 bool IsSameLocation(WorldLocation const &a, WorldLocation const &b)
 {
@@ -65,7 +78,7 @@ WorldLocation FollowFormation::GetLocation()
     float y = followTarget->GetPositionY() + sin(angle) * range;
     float z = followTarget->GetPositionZ();
 
-    return WorldLocation(bot->GetMapId(), x, y, z);
+    return SafeFormationLocation(ai, followTarget, WorldLocation(bot->GetMapId(), x, y, z));
 }
 
 WorldLocation MoveAheadFormation::GetLocation()
@@ -76,7 +89,7 @@ WorldLocation MoveAheadFormation::GetLocation()
 
     WorldLocation loc = GetLocationInternal();
 
-    return loc;
+    return SafeFormationLocation(ai, followTarget, loc);
 
     /*
     if (Formation::IsNullLocation(loc))
@@ -262,7 +275,7 @@ namespace ai
                 z += CONTACT_DISTANCE;
                 bot->UpdateAllowedPositionZ(x, y, z);
             }
-            return WorldLocation(bot->GetMapId(), x, y, z);
+            return SafeFormationLocation(ai, followTarget, WorldLocation(bot->GetMapId(), x, y, z));
         }
     };
 
@@ -345,21 +358,21 @@ namespace ai
 
             if (ai->IsTank(bot) && ai->IsTank(followTarget))
             {
-                return MoveLine(tanks, 0.0f, x, y, z, orientation, range);
+                return SafeFormationLocation(ai, followTarget, MoveLine(tanks, 0.0f, x, y, z, orientation, range));
             }
             if (!ai->IsTank(bot) && !ai->IsTank(followTarget))
             {
-                return MoveLine(dps, 0.0f, x, y, z, orientation, range);
+                return SafeFormationLocation(ai, followTarget, MoveLine(dps, 0.0f, x, y, z, orientation, range));
             }
             if (ai->IsTank(bot) && !ai->IsTank(followTarget))
             {
                 float diff = tanks.size() % 2 == 0 ? -sPlayerbotAIConfig.tooCloseDistance / 2.0f : 0.0f;
-                return MoveLine(tanks, diff, x + cos(orientation) * range, y + sin(orientation) * range, z, orientation, range);
+                return SafeFormationLocation(ai, followTarget, MoveLine(tanks, diff, x + cos(orientation) * range, y + sin(orientation) * range, z, orientation, range));
             }
             if (!ai->IsTank(bot) && ai->IsTank(followTarget))
             {
                 float diff = dps.size() % 2 == 0 ? -sPlayerbotAIConfig.tooCloseDistance / 2.0f : 0.0f;
-                return MoveLine(dps, diff, x - cos(orientation) * range, y - sin(orientation) * range, z, orientation, range);
+                return SafeFormationLocation(ai, followTarget, MoveLine(dps, diff, x - cos(orientation) * range, y - sin(orientation) * range, z, orientation, range));
             }
             return Formation::NullLocation;
         }

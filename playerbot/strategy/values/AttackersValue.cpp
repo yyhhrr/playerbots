@@ -3,6 +3,7 @@
 #include "AttackersValue.h"
 #include "PossibleTargetsValue.h"
 #include "EnemyPlayerValue.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -425,6 +426,11 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
     }
 
     if (IgnoreTarget(target, playerToCheckAgainst))
+        return false;
+
+    // Shared threat must be reachable from this bot's platform, not the
+    // group member whose combat list supplied it.
+    if (!dungeon::CanTarget(playerToCheckAgainst->GetPlayerbotAI(), target))
         return false;
 
     return true;

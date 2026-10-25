@@ -2,6 +2,7 @@
 #include "playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/DungeonMovement.h"
 #include "playerbot/strategy/values/SharedValueContext.h"
 
 using namespace ai;
@@ -221,10 +222,15 @@ LootObject::LootObject(const LootObject& other)
 
 bool LootObject::IsLootPossible(Player* bot)
 {
-    if (IsEmpty() || !GetWorldObject(bot))
+    WorldObject* object = IsEmpty() ? nullptr : GetWorldObject(bot);
+    if (!object)
         return false;
 
     PlayerbotAI* ai = bot->GetPlayerbotAI();
+
+    // Recheck queued corpses and objects too, before choosing or moving to loot.
+    if (!dungeon::CanLoot(ai, object))
+        return false;
 
     if (reqItem && !bot->HasItemCount(reqItem, 1))
     {

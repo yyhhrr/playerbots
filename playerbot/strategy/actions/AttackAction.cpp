@@ -7,6 +7,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
 
@@ -303,6 +304,10 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 
         return false;
     }
+
+    // Apply the same boundary to explicit attack/RTI orders before sending pets.
+    if (!dungeon::CanTarget(ai, target))
+        return false;
 
     return true;
 }

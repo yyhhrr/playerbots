@@ -85,6 +85,11 @@ tests
 !/tests/enchanting_exchange_test.cpp
 !/tests/enchanting_runtime_test.cpp
 !/tests/item_upgrade_weight_test.cpp
+!/tests/dungeon_movement_policy_test.cpp
+!/tests/dungeon_movement_runtime_test.cpp
+!/tests/dungeon_motion_test.cpp
+!/tests/dungeon_movement_stubs/
+!/tests/dungeon_movement_stubs/**
 !/tests/enchanting_stubs/
 !/tests/enchanting_stubs/**
 

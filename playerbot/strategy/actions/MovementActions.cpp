@@ -3,6 +3,7 @@
 #include "MovementActions.h"
 #include "MotionGenerators/MotionMaster.h"
 #include "MotionGenerators/MovementGenerator.h"
+#include "Movement/MoveSpline.h"
 #include "playerbot/FleeManager.h"
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -16,8 +17,102 @@
 #include "Entities/Vehicle.h"
 #endif
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/DungeonMovement.h"
 
 using namespace ai;
+
+// Dungeon moves use the checked route itself. Native follow/chase generators
+// can otherwise recalculate a new offset or fall back to a direct shortcut.
+bool MovementAction::MoveAlongDungeonPath(const WorldPosition& destination,
+    dungeon::MovePurpose purpose, bool walking)
+{
+    // Build and compare routes from the live spline position, not the preceding
+    // map-update position that Clear() may advance underneath the new path.
+    if (!bot->movespline->Finalized())
+        bot->UpdateSplinePosition(true);
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    lastMove.lastPath.clear();
+    lastMove.nextTeleport = 0;
+    std::vector<WorldPosition> path;
+    if (!ai->CanMove() || !dungeon::BuildSafePath(ai, destination, purpose, path))
+    {
+        ai->StopMoving();
+        return false;
+    }
+    if (GeneratePathAvoidingHazards(path) && !dungeon::ValidatePath(ai, path, purpose))
+    {
+        ai->StopMoving();
+        return false;
+    }
+
+    const auto hazards = AI_VALUE(std::list<HazardPosition>, "hazards");
+    const std::vector<std::pair<WorldPosition, float>> currentHazards(hazards.begin(), hazards.end());
+    const uint32 now = WorldTimer::getMSTime();
+    const bool sameSpline = lastMove.dungeonSplineId && !bot->movespline->Finalized() &&
+        bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == PATH_MOTION_TYPE &&
+        bot->movespline->GetId() == lastMove.dungeonSplineId;
+    const bool sameMode = lastMove.dungeonPurpose == uint8(purpose) && lastMove.dungeonWalking == walking;
+    if (sameSpline && sameMode && lastMove.dungeonGoal.getMapId() == destination.getMapId() &&
+        lastMove.dungeonHazards == currentHazards)
+    {
+        const WorldPosition here(bot);
+        const float change = lastMove.dungeonGoal.sqDistance(destination);
+        const float oldX = lastMove.dungeonGoal.getX() - here.getX();
+        const float oldY = lastMove.dungeonGoal.getY() - here.getY();
+        const float newX = destination.getX() - here.getX();
+        const float newY = destination.getY() - here.getY();
+        const float oldLength = std::hypot(oldX, oldY), newLength = std::hypot(newX, newY);
+        const bool corner = oldLength > 1.0f && newLength > 1.0f &&
+            oldX * newX + oldY * newY < oldLength * newLength * 0.70710678f;
+        const bool nearEnd = bot->movespline->Duration() * (1.0f - bot->movespline->GetElapsedValue()) <= 200.0f;
+        const bool goalChanged = change > 4.0f || corner || (nearEnd && change > 0.01f);
+        // Ordinary refreshes keep a validated active spline running. Moving
+        // targets can replan twice a second, or sooner when its path is ending.
+        if (!goalChanged || (!nearEnd && WorldTimer::getMSTimeDiff(lastMove.dungeonRepathTime, now) < 500))
+            return true;
+    }
+
+    // FixedPathMovementGenerator prepends its own live starting position. The
+    // route's first point is the source (possibly a slightly older cached one),
+    // and hazard detours preserve it. Never submit that source as a waypoint.
+    std::vector<G3D::Vector3> points;
+    WorldPosition previous(bot);
+    for (std::size_t i = 1; i < path.size(); ++i)
+    {
+        const WorldPosition& point = path[i];
+        const float length = previous.distance(point);
+        if (length < 0.05f)
+            continue;
+        points.push_back(point.getVector3());
+        previous = point;
+    }
+    if (points.empty())
+    {
+        ai->StopMoving();
+        return false;
+    }
+
+    MotionMaster& motion = *bot->GetMotionMaster();
+    motion.Clear(false, true);
+#ifndef MANGOSBOT_TWO
+    motion.MovePath(points, walking ? FORCED_MOVEMENT_WALK : FORCED_MOVEMENT_RUN, false, false);
+#else
+    motion.MovePath(points, walking ? FORCED_MOVEMENT_WALK : FORCED_MOVEMENT_RUN, false);
+#endif
+    if (bot->movespline->Finalized())
+    {
+        ai->StopMoving();
+        lastMove.dungeonSplineId = 0;
+        return false;
+    }
+    lastMove.dungeonGoal = destination;
+    lastMove.dungeonSplineId = bot->movespline->GetId();
+    lastMove.dungeonRepathTime = now;
+    lastMove.dungeonPurpose = uint8(purpose);
+    lastMove.dungeonWalking = walking;
+    lastMove.dungeonHazards = currentHazards;
+    return true;
+}
 
 void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float o, uint32 entry, bool important)
 {
@@ -1096,6 +1191,22 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
         return false;
 
     Unit* mover = GetMover(bot);
+
+    if (mover == bot && dungeon::IsActive(ai) && endPos.getMapId() == bot->GetMapId() && !dungeon::CanUseWaterRoute(ai, endPos))
+    {
+        if (WorldPosition(bot).distance(endPos) < sPlayerbotAIConfig.targetPosRecalcDistance)
+        {
+            ai->StopMoving();
+            return false;
+        }
+        if (!idle)
+            ClearIdleState();
+        Player* master = GetMaster();
+        const bool walking = master && master->m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE);
+        const bool moved = MoveAlongDungeonPath(endPos, dungeon::MovePurpose::Local, walking);
+        SetDuration(250);
+        return moved;
+    }
 
     LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
 
@@ -2382,6 +2493,24 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
 
     float tDist = botPos.fDist(tarPos);
 
+    if (dungeon::IsActive(ai) && target->IsAlive() && !target->GetTransport() &&
+        !target->IsFlying() && !dungeon::CanUseWaterRoute(ai, tarPos))
+    {
+        // Follow the chosen walkable route to the leader, rather than spreading
+        // sideways on a narrow platform. The saved formation remains unchanged.
+        if (botPos.distance(tarPos) <= std::max(0.75f, sPlayerbotAIConfig.followDistance))
+        {
+            ai->StopMoving();
+            return false;
+        }
+        AI_VALUE(LastMovement&, "last movement").Set(target);
+        ClearIdleState();
+        const bool moved = MoveAlongDungeonPath(tarPos, dungeon::MovePurpose::Follow,
+            target->m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE));
+        SetDuration(250);
+        return moved;
+    }
+
     if (tDist > sPlayerbotAIConfig.sightDistance || (target->IsFlying() && !bot->IsFreeFlying()) || target->IsTaxiFlying())
     {
         if (target->GetObjectGuid().IsPlayer())
@@ -2616,6 +2745,20 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     if (!ai->IsSafe(obj))
         return false;
 
+    if (dungeon::IsActive(ai) && !dungeon::CanTarget(ai, obj))
+    {
+        ai->StopMoving();
+        return false;
+    }
+
+    if (dungeon::IsActive(ai) && obj->IsUnit() && static_cast<Unit*>(obj)->IsFlying())
+    {
+        // Flying bosses may be valid ranged targets, but never chase their
+        // airborne coordinates off the edge of a platform.
+        ai->StopMoving();
+        return false;
+    }
+
 #ifdef MANGOSBOT_TWO
     TransportInfo* transportInfo = bot->GetTransportInfo();
     if (transportInfo && transportInfo->IsOnVehicle())
@@ -2660,6 +2803,58 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     bot->HandleEmoteState(0);
     if (!bot->IsStandState())
         bot->SetStandState(UNIT_STAND_STATE_STAND);
+
+    if (dungeon::IsActive(ai) && !dungeon::CanUseWaterRoute(ai, WorldPosition(obj)))
+    {
+        WorldPosition destination(obj);
+        if (!ai->IsRanged(bot) && obj->IsUnit())
+        {
+            Unit* target = static_cast<Unit*>(obj);
+            if (bot->CanReachWithMeleeAttack(target) && bot->IsWithinLOSInMap(target))
+            {
+                bot->SetTarget(obj);
+                bot->Attack(target, false);
+                ai->StopMoving();
+                return true;
+            }
+
+            WorldPosition preferred;
+            Stance* stance = AI_VALUE(Stance*, "stance");
+            if (stance)
+            {
+                const WorldLocation location = stance->GetLocation();
+                if (!Formation::IsNullLocation(location) && location.mapid != uint32(-1))
+                    preferred = location;
+            }
+            // An unsafe rear position must not turn into "chase our own feet".
+            // Approach from another supported contact point on the same floor.
+            if (!dungeon::FindMeleeApproach(ai, target, preferred, destination))
+            {
+                ai->StopMoving();
+                return false;
+            }
+        }
+        else if (distance > 0.0f)
+        {
+            const float length = WorldPosition(bot).distance(destination);
+            if (length <= distance && bot->IsWithinLOSInMap(obj))
+            {
+                ai->StopMoving();
+                return false;
+            }
+            // Without LOS, use the complete safe route to approach the target;
+            // a straight-line range offset can land on the wrong side of a wall.
+        }
+        if (obj->IsUnit())
+        {
+            bot->SetTarget(obj);
+            bot->Attack(static_cast<Unit*>(obj), false);
+        }
+        ClearIdleState();
+        const bool moved = MoveAlongDungeonPath(destination, dungeon::MovePurpose::Local);
+        SetDuration(250);
+        return moved;
+    }
 
 #ifndef MANGOSBOT_ZERO
     if (bot->InArena())
@@ -2996,7 +3191,7 @@ bool MovementAction::Flee(Unit *target)
         succeeded = MoveNear(fleeTarget);
     }
 
-    if (!ai->HasRealPlayerMaster() && !ai->IsRealPlayer(target))
+    if (!dungeon::IsActive(ai) && !ai->HasRealPlayerMaster() && !ai->IsRealPlayer(target))
     {
         bool fullDistance = false;
         if (target->IsPlayer())
@@ -3379,6 +3574,12 @@ bool SetBehindTargetAction::Execute(Event& event)
 #else
     target->GetMap()->GetHitPosition(ox, oy, oz + bot->GetCollisionHeight(), x, y, z, -0.5f);
 #endif
+
+    if (dungeon::IsActive(ai) && !dungeon::IsSafeLocalPoint(ai, WorldPosition(target), WorldPosition(bot->GetMapId(), x, y, z)))
+    {
+        ai->StopMoving();
+        return false;
+    }
 
     const bool isLos = target->IsWithinLOS(x, y, z + bot->GetCollisionHeight(), true);
     bool moved = MoveTo(bot->GetMapId(), x, y, z);

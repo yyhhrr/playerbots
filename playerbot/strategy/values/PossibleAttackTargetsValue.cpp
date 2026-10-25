@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "PossibleAttackTargetsValue.h"
 #include "PossibleTargetsValue.h"
+#include "playerbot/DungeonMovement.h"
 
 #include "playerbot/ServerFacade.h"
 #include "Grids/GridNotifiers.h"
@@ -370,6 +371,9 @@ bool PossibleAttackTargetsValue::IsPossibleTarget(Unit* target, Player* player, 
                 return false;
             }
         }
+
+        if (!dungeon::CanTarget(player->GetPlayerbotAI(), target))
+            return false;
 
         return true;
     }

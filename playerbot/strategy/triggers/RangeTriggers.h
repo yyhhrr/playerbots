@@ -5,6 +5,7 @@
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/Formations.h"
+#include "playerbot/DungeonMovement.h"
 
 namespace ai
 {
@@ -332,6 +333,7 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            checkInterval = dungeon::IsActive(ai) ? 1 : 3;
             Unit* followTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "follow target"));
 
             if (!followTarget || !ai->IsSafe(followTarget))

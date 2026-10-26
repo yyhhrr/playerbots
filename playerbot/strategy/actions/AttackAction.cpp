@@ -219,7 +219,8 @@ bool AttackAction::Attack(Player* requester, Unit* target)
 
 bool AttackAction::PetAttack(Player* requester, Unit* target)
 {
-    if (!PossibleTargetsValue::CanPerceive(target, bot))
+    if (!PossibleTargetsValue::CanPerceive(target, bot) ||
+        !EnemyPlayersValue::IsAllowedAlteracTarget(target, bot))
         return false;
 
     // If we're done waiting to attack and there's mobs to cc, we can't use defensive/aggressive
@@ -268,7 +269,8 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 
         return false;
     }
-    else if (!EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+    else if (!EnemyPlayersValue::IsAllowedWarsongTarget(target, bot) ||
+        !EnemyPlayersValue::IsAllowedAlteracTarget(target, bot))
     {
         return false;
     }

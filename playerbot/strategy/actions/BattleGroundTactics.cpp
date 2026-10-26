@@ -10,6 +10,9 @@
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/WarsongGraveyardPolicy.h"
 #include "playerbot/WarsongCombatProgress.h"
+#include "playerbot/AlteracValleyTactics.h"
+#include "playerbot/AlteracCapture.h"
+#include "playerbot/AlteracCombat.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "MotionGenerators/MotionMaster.h"
@@ -2920,6 +2923,99 @@ bool BGTactics::eotsJump()
 // actual bg tactics below
 //
 
+bool BGTactics::moveAlteracObjective(bool defenderOnly)
+{
+    if (!ai::alterac::IsActive(bot) || !bot->IsAlive() || !ai->CanMove() ||
+        ai::alterac::IsCapturing(bot) || (defenderOnly && !ai::alterac::IsDefender(ai)))
+        return false;
+    ai::PositionEntry goal = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
+    if (!goal.isSet() || goal.mapId != bot->GetMapId()) return false;
+    const auto engaged = [&](Unit* target)
+    {
+        return target && target->IsInWorld() && target->GetMap() == bot->GetMap() &&
+            target->IsAlive() && bot->CanAttack(target) &&
+            bot->IsWithinDistInMap(target, sPlayerbotAIConfig.sightDistance) &&
+            PossibleTargetsValue::CanPerceive(target, bot) &&
+            EnemyPlayersValue::IsAllowedAlteracTarget(target, bot);
+    };
+    Unit* current = ai->GetUnit(context->GetValue<ObjectGuid>("current target")->Get());
+    Unit* victim = bot->GetVictim();
+    if (engaged(current) || engaged(victim)) return false;
+    for (Unit* attacker : bot->getAttackers())
+        if (engaged(attacker) && attacker->GetVictim() == bot && ai::alterac::CanFightFromHere(ai, attacker))
+            return false;
+
+    if (sqrt(bot->GetDistance(goal.x, goal.y, goal.z, DIST_CALC_NONE)) <= 3.0f)
+    {
+        if (bot->IsMoving()) ai->StopMoving();
+        return false;
+    }
+    auto* ownedSpline = context->GetValue<int>("manual int", "alterac objective spline");
+    ai::PositionEntry& routeGoal = context->GetValue<ai::PositionMap&>("position")->Get()["alterac objective route"];
+    const bool sameGoal = routeGoal.isSet() && routeGoal.mapId == goal.mapId &&
+        routeGoal.x == goal.x && routeGoal.y == goal.y && routeGoal.z == goal.z;
+    if (sameGoal && ownedSpline->Get() && !bot->movespline->Finalized() &&
+        bot->movespline->GetId() == uint32(ownedSpline->Get()) &&
+        bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+    {
+        SetDuration(500);
+        return true;
+    }
+    ownedSpline->Set(0);
+    routeGoal.Reset();
+    const auto dispatch = [&](bool precise)
+    {
+        const uint32 before = bot->movespline->GetId();
+        const bool requested = precise ? MoveTo(goal.mapId, goal.x, goal.y, goal.z, false, true, false,
+            ai::alterac::IsDefender(ai)) :
+            selectObjectiveWp(vPaths_AV);
+        if (!requested || bot->movespline->Finalized() || bot->movespline->GetId() == before)
+            return false;
+        const auto destination = bot->movespline->FinalDestination();
+        if (bot->GetDistance(destination.x, destination.y, destination.z, DIST_CALC_NONE) <= 0.01f)
+            return false;
+        if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        {
+            ownedSpline->Set(int(bot->movespline->GetId()));
+            routeGoal.Set(goal.x, goal.y, goal.z, goal.mapId);
+        }
+        return true;
+    };
+    // Near a node use its exact position, so arrival cannot leave an opener
+    // outside interaction range. A partial/empty success must yield to routes.
+    const float directDistance = sServerFacade.GetDistance2d(bot, goal.x, goal.y);
+    bool moved = directDistance <= 100.0f && dispatch(true);
+    if (!moved) moved = dispatch(false);
+    if (!moved) moved = dispatch(true);
+    if (moved)
+    {
+        // Only release an obsolete fight once a return move really started;
+        // path failure or crowd control must not leave a guard passive.
+        for (Unit* target : {current, victim})
+        {
+            if (!target || EnemyPlayersValue::IsAllowedAlteracTarget(target, bot)) continue;
+            const ObjectGuid guid = target->GetObjectGuid();
+            for (const char* name : {"current target", "attack target", "pull target", "old target"})
+                if (context->GetValue<ObjectGuid>(name)->Get() == guid)
+                    context->GetValue<ObjectGuid>(name)->Set(ObjectGuid());
+            if (bot->GetVictim() == target) bot->AttackStop();
+            if (bot->GetSelectionGuid() == guid)
+            {
+                bot->SetSelectionGuid(ObjectGuid());
+                bot->SetTarget(nullptr);
+            }
+            if (Pet* pet = bot->GetPet())
+                if (pet->GetVictim() == target)
+                {
+                    pet->AttackStop();
+                    pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
+                }
+        }
+    }
+    SetDuration(500);
+    return moved;
+}
+
 bool BGTactics::Execute(Event& event)
 {
     BattleGround *bg = bot->GetBattleGround();
@@ -3011,6 +3107,21 @@ bool BGTactics::Execute(Event& event)
     if (bgType == BATTLEGROUND_WS && bg->GetStatus() == STATUS_IN_PROGRESS)
         refreshWarsongObjective();
 
+    if (ai::alterac::IsActive(bot))
+    {
+        WorldLocation objective;
+        ai::alterac::SelectObjective(ai, objective);
+        if (!bot->IsAlive() || ai::alterac::UpdateCaptureResponse(ai)) return false;
+        if (ai::alterac::IsCapturing(bot))
+        {
+            SetDuration(250);
+            return true;
+        }
+    }
+    if (getName() == "alterac capture") return CheckFlagAv();
+    if (getName() == "alterac defend") return moveAlteracObjective(true);
+    if (getName() == "alterac objective") return moveAlteracObjective(false);
+
     if (getName() == "warsong carry")
         return moveWarsongObjective(true, false);
     if (getName() == "warsong descent")
@@ -3046,6 +3157,7 @@ bool BGTactics::Execute(Event& event)
 
     if (getName() == "move to objective")
     {
+        if (ai::alterac::IsActive(bot)) return moveAlteracObjective(false);
         if (bg->GetStatus() == STATUS_WAIT_JOIN)
             return false;
 
@@ -3237,6 +3349,12 @@ bool BGTactics::selectObjective(bool reset)
 
     if (bg->GetStatus() != STATUS_IN_PROGRESS)
         return false;
+
+    if (ai::alterac::IsActive(bot))
+    {
+        WorldLocation objective;
+        return ai::alterac::SelectObjective(ai, objective);
+    }
 
     ai::PositionMap& posMap = context->GetValue<ai::PositionMap&>("position")->Get();
     ai::PositionEntry pos = context->GetValue<ai::PositionMap&>("position")->Get()["bg objective"];
@@ -4231,6 +4349,12 @@ bool BGTactics::resetObjective()
     BattleGround *bg = bot->GetBattleGround();
     if (!bg)
         return false;
+
+    if (ai::alterac::IsActive(bot))
+    {
+        WorldLocation objective;
+        return ai::alterac::SelectObjective(ai, objective);
+    }
 
     if (bot->GetMapId() == 529)
     {

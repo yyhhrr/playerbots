@@ -11,6 +11,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/Stances.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
+#include "playerbot/strategy/values/EnemyPlayerValue.h"
 #include "MotionGenerators/TargetedMovementGenerator.h"
 #include "playerbot/TravelMgr.h"
 #include "Entities/Transports.h"
@@ -2748,6 +2749,12 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 
     if (obj->IsUnit() && sServerFacade.IsHostileTo(bot, static_cast<Unit*>(obj)) &&
         !PossibleTargetsValue::CanPerceive(static_cast<Unit*>(obj), bot))
+    {
+        ai->StopMoving();
+        return false;
+    }
+
+    if (obj->IsUnit() && !EnemyPlayersValue::IsAllowedAlteracTarget(static_cast<Unit*>(obj), bot))
     {
         ai->StopMoving();
         return false;

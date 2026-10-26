@@ -44,7 +44,8 @@ bool InvalidTargetValue::Calculate()
     // Do not let the fallback cached list keep a defender chasing outside its node.
     // The shared check includes hostile pets but leaves other BGs and ordinary NPCs alone.
     if (!EnemyPlayersValue::IsAllowedArathiDefenderTarget(target, bot) ||
-        !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+        !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot) ||
+        !EnemyPlayersValue::IsAllowedAlteracTarget(target, bot))
         return true;
 
     const bool validTarget = PossibleAttackTargetsValue::IsValid(target, bot);

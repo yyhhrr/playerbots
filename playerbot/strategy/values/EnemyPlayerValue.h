@@ -17,6 +17,7 @@ namespace ai
         // Shared by player selection, pet/guardian attackers, and current-target validation.
         static bool IsAllowedArathiDefenderTarget(Unit* target, Player* player);
         static bool IsAllowedWarsongTarget(Unit* target, Player* player);
+        static bool IsAllowedAlteracTarget(Unit* target, Player* player);
 
     private:
         void ApplyFilter(std::list<ObjectGuid>& targets, bool getOne);

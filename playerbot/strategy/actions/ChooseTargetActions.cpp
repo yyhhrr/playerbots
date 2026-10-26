@@ -29,7 +29,8 @@ bool AttackAnythingAction::isUseful()
 
     Unit* target = GetTarget();
 
-    if (!target || !ai->IsSafe(target) || !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+    if (!target || !ai->IsSafe(target) || !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot) ||
+        !EnemyPlayersValue::IsAllowedAlteracTarget(target, bot))
         return false;
 
     bool pinnedByOrder = ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT) || ai->HasStrategy("guard", BotState::BOT_STATE_NON_COMBAT);
@@ -96,7 +97,8 @@ bool ai::AttackAnythingAction::Execute(Event& event)
 bool AttackEnemyPlayerAction::isUseful()
 {
     return !sPlayerbotAIConfig.IsInPvpProhibitedZone(sServerFacade.GetAreaId(bot)) &&
-        EnemyPlayersValue::IsAllowedWarsongTarget(GetTarget(), bot);
+        EnemyPlayersValue::IsAllowedWarsongTarget(GetTarget(), bot) &&
+        EnemyPlayersValue::IsAllowedAlteracTarget(GetTarget(), bot);
 }
 
 bool AttackEnemyFlagCarrierAction::isUseful()

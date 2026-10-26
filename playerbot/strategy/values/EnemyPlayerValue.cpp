@@ -7,6 +7,8 @@
 #include "playerbot/WarsongCombat.h"
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/WarsongCombatProgress.h"
+#include "playerbot/AlteracValleyTactics.h"
+#include "playerbot/AlteracCombat.h"
 #include "BattleGround/BattleGroundAB.h"
 #include "BattleGround/BattleGroundWS.h"
 #include "BattleGround/BattleGroundMgr.h"
@@ -209,7 +211,8 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 return false;
             }
 
-            if (!IsAllowedArathiDefenderTarget(target, player) || !IsAllowedWarsongTarget(target, player))
+            if (!IsAllowedArathiDefenderTarget(target, player) || !IsAllowedWarsongTarget(target, player) ||
+                !IsAllowedAlteracTarget(target, player))
             {
                 return false;
             }
@@ -281,6 +284,14 @@ bool EnemyPlayersValue::IsAllowedWarsongTarget(Unit* target, Player* player)
     // The objective denotes this friendly carrier, whose live position prevents
     // an old snapshot from leaving escorts defending a point the carrier has left.
     return warsong::CanEngageAsEscort(true, true, friendlyCarrier->GetDistance(target), distance, directAttack);
+}
+
+bool EnemyPlayersValue::IsAllowedAlteracTarget(Unit* target, Player* player)
+{
+    PlayerbotAI* ai = player ? player->GetPlayerbotAI() : nullptr;
+    if (!ai || !alterac::IsActive(player) || !target || sServerFacade.IsFriendlyTo(player, target))
+        return true;
+    return !alterac::IsCombatTargetSuppressed(ai, target) && alterac::IsAllowedTarget(ai, target);
 }
 
 bool EnemyPlayersValue::IsReachable(Unit* target, Player* player)
@@ -356,7 +367,8 @@ ObjectGuid EnemyPlayerValue::Calculate()
     {
         const bool isMelee = !ai->IsRanged(bot);
         BattleGround* arathi = GetActiveArathiBattleGround(bot);
-        if (arathi)
+        const bool alteracBattle = alterac::IsActive(bot);
+        if (arathi || alteracBattle)
         {
             ArathiCombatCandidate bestCandidate;
             for (const ObjectGuid& targetGuid : enemyPlayers)
@@ -367,7 +379,8 @@ ObjectGuid EnemyPlayerValue::Calculate()
                     continue;
 
                 const ArathiCombatCandidate candidate = {
-                    IsCapturingArathiBanner(target, bot, arathi), target->GetDistance(bot, true), target->GetHealth()
+                    alteracBattle ? alterac::IsCapturingEnemy(bot, target) : IsCapturingArathiBanner(target, bot, arathi),
+                    target->GetDistance(bot, true), target->GetHealth()
                 };
                 if (!bestEnemyPlayer || IsBetterArathiCombatTarget(candidate, bestCandidate, isMelee))
                 {

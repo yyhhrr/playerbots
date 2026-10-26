@@ -9,6 +9,8 @@
 #include "playerbot/ArathiBasinTactics.h"
 #include "playerbot/TargetPerception.h"
 #include "playerbot/WarsongCombatProgress.h"
+#include "playerbot/AlteracCapture.h"
+#include "playerbot/AlteracCombat.h"
 
 #include "MotionGenerators/MovementGenerator.h"
 #include "Grids/GridNotifiers.h"
@@ -604,6 +606,11 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         bot->StopMoving();
     }
+
+    // Alterac capture interruption and route recovery must also run while the
+    // ordinary engine is waiting for a cast or an accepted movement command.
+    if (alterac::UpdateCaptureResponse(this) || alterac::UpdateCombatProgress(this))
+        ResetAIInternalUpdateDelay();
 
     // A failed native chase must not suspend Warsong tactics indefinitely.
     if (warsong::UpdateCombatProgress(this))

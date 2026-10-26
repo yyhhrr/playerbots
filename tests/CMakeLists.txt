@@ -117,7 +117,7 @@ target_compile_features(dungeon_motion_test PRIVATE cxx_std_20)
 target_compile_definitions(dungeon_motion_test PRIVATE MANGOSBOT_ZERO CMANGOS DUNGEON_MOTION_TEST)
 add_test(NAME dungeon_motion COMMAND dungeon_motion_test)
 
-foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy enchanting_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy warsong_policy warsong_combat warsong_carrier_policy warsong_carrier_abilities warsong_spell_policy)
+foreach(test_name IN ITEMS mage_aoe_geometry mage_aoe_policy enchanting_policy need_roll_command quest_item_exchange quest_item_exchange_command guild_bot_login arathi_basin_policy arathi_basin_combat arathi_capture_policy alterac_valley_policy warsong_policy warsong_combat warsong_carrier_policy warsong_carrier_abilities warsong_spell_policy)
     add_executable(${test_name}_test ${test_name}_test.cpp)
     target_include_directories(${test_name}_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/..")
     target_compile_features(${test_name}_test PRIVATE cxx_std_20)
@@ -379,3 +379,38 @@ foreach(weight_variant IN ITEMS classic expansion)
     endif()
     add_test(NAME item_upgrade_weight_${weight_variant} COMMAND item_upgrade_weight_${weight_variant}_test)
 endforeach()
+
+# Execute the actual Classic Alterac opening, live-threat and interruption flow.
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/AlteracCapture.cpp"
+    "namespace ai::alterac" "" alterac_capture_source.inc)
+add_executable(alterac_capture_runtime_test alterac_capture_runtime_test.cpp)
+target_include_directories(alterac_capture_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(alterac_capture_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(alterac_capture_runtime_test PRIVATE MANGOSBOT_ZERO)
+add_test(NAME alterac_capture_runtime COMMAND alterac_capture_runtime_test)
+
+# Execute the event-to-state mapping, team plan and node interaction boundaries.
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/AlteracValleyTactics.cpp"
+    "namespace ai::alterac" "" alterac_tactics_source.inc)
+add_executable(alterac_tactics_runtime_test alterac_tactics_runtime_test.cpp)
+target_include_directories(alterac_tactics_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(alterac_tactics_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(alterac_tactics_runtime_test PRIVATE MANGOSBOT_ZERO)
+add_test(NAME alterac_tactics_runtime COMMAND alterac_tactics_runtime_test)
+
+# Exercise the actual AV route monitor, defender target gate and enemy selection.
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/AlteracCombat.cpp"
+    "namespace ai::alterac" "" alterac_combat_source.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/PlayerbotAI.cpp"
+    "    // Alterac capture interruption" "    // A failed native chase" alterac_combat_outer.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/EnemyPlayerValue.cpp"
+    "bool EnemyPlayersValue::IsAllowedAlteracTarget(" "bool EnemyPlayersValue::IsReachable(" alterac_enemy_target_gate.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/EnemyPlayerValue.cpp"
+    "ObjectGuid EnemyPlayerValue::Calculate(" "float EnemyPlayerValue::GetMaxAttackDistance(" alterac_enemy_selection.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/BattleGroundTactics.cpp"
+    "bool BGTactics::moveAlteracObjective(" "bool BGTactics::Execute(" alterac_objective_source.inc)
+add_executable(alterac_combat_runtime_test alterac_combat_runtime_test.cpp)
+target_include_directories(alterac_combat_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(alterac_combat_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(alterac_combat_runtime_test PRIVATE MANGOSBOT_ZERO)
+add_test(NAME alterac_combat_runtime COMMAND alterac_combat_runtime_test)

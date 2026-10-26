@@ -2,6 +2,8 @@
 #include "BattleGround/BattleGround.h"
 #include "BattleGround/BattleGroundAV.h"
 #include "BattleGroundTactics.h"
+#include "playerbot/AlteracValleyTactics.h"
+#include "playerbot/AlteracCapture.h"
 
 static std::tuple<uint32, uint32, std::string> AV_HordeAttackObjectives[] =
 {
@@ -101,6 +103,9 @@ static std::tuple<uint32, uint32, std::string> AV_AllianceDefendObjectives[] =
 
 bool BGTactics::SelectAvObjectiveAlliance(WorldLocation& objectiveLocation)
 {
+#ifdef MANGOSBOT_ZERO
+    return ai::alterac::SelectObjective(ai, objectiveLocation);
+#else
     BattleGround* bg = bot->GetBattleGround();
     if (!bg)
     {
@@ -258,10 +263,14 @@ bool BGTactics::SelectAvObjectiveAlliance(WorldLocation& objectiveLocation)
     }
 
     return false;
+#endif
 }
 
 bool BGTactics::SelectAvObjectiveHorde(WorldLocation& objectiveLocation)
 {
+#ifdef MANGOSBOT_ZERO
+    return ai::alterac::SelectObjective(ai, objectiveLocation);
+#else
     BattleGround* bg = bot->GetBattleGround();
     if (!bg)
     {
@@ -425,6 +434,7 @@ bool BGTactics::SelectAvObjectiveHorde(WorldLocation& objectiveLocation)
     }
 
     return false;
+#endif
 }
 
 std::vector<uint32> const FlagEntries =
@@ -442,6 +452,11 @@ std::vector<uint32> const FlagEntries =
 
 bool BGTactics::CheckFlagAv()
 {
+#ifdef MANGOSBOT_ZERO
+    const bool started = ai::alterac::TryCapture(ai);
+    if (started) SetDuration(250);
+    return started;
+#else
     BattleGround* bg = bot->GetBattleGround();
     if (!bg)
     {
@@ -506,4 +521,5 @@ bool BGTactics::CheckFlagAv()
     }
 
     return false;
+#endif
 }

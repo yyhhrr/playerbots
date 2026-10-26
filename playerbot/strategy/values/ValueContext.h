@@ -13,6 +13,7 @@
 #include "PartyMemberToSoulstone.h"
 #include "CurrentTargetValue.h"
 #include "WarsongCombatProgressValue.h"
+#include "AlteracCombatProgressValue.h"
 #include "SelfTargetValue.h"
 #include "MasterTargetValue.h"
 #include "LineTargetValue.h"
@@ -393,6 +394,7 @@ namespace ai
             creators["gt32"] = [](PlayerbotAI* ai) { return new GT32Value(ai); };
             creators["manual bool"] = [](PlayerbotAI* ai) { return new BoolManualSetValue(ai); };
             creators["warsong combat progress"] = [](PlayerbotAI* ai) { return new WarsongCombatProgressValue(ai); };
+            creators["alterac combat progress"] = [](PlayerbotAI* ai) { return new AlteracCombatProgressValue(ai); };
             creators["manual int"] = [](PlayerbotAI* ai) { return new IntManualSetValue(ai); };
             creators["manual saved int"] = [](PlayerbotAI* ai) { return new IntManualSetSavedValue(ai); };
             creators["manual string"] = [](PlayerbotAI* ai) { return new StringManualSetValue(ai); };

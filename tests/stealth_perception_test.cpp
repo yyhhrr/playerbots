@@ -302,6 +302,7 @@ namespace ai
         static bool IsReachable(Unit* target, Player*) { return target->reachable; }
         static bool IsAllowedArathiDefenderTarget(Unit* target, Player*) { return target->arathiAllowed; }
         static bool IsAllowedWarsongTarget(Unit* target, Player*) { return target->warsongAllowed; }
+        static bool IsAllowedAlteracTarget(Unit*, Player*) { return true; }
     };
     class InvalidTargetValue
     {

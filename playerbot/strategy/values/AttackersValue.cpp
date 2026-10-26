@@ -32,7 +32,8 @@ std::list<ObjectGuid> AttackersValue::Calculate()
         Unit* rtiTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "rti target"));
 
         if (rtiTarget && PossibleTargetsValue::CanPerceive(rtiTarget, bot) &&
-            EnemyPlayersValue::IsAllowedWarsongTarget(rtiTarget, bot))
+            EnemyPlayersValue::IsAllowedWarsongTarget(rtiTarget, bot) &&
+            EnemyPlayersValue::IsAllowedAlteracTarget(rtiTarget, bot))
         {
             return { rtiTarget->GetObjectGuid() };
         }
@@ -166,7 +167,8 @@ std::list<ObjectGuid> AttackersValue::Calculate()
         // Controlled units are added after their owner was validated; validate
         // each unit against the carrier's own immediate self-defense boundary.
         if (!PossibleTargetsValue::CanPerceive(target, bot) ||
-            !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot))
+            !EnemyPlayersValue::IsAllowedWarsongTarget(target, bot) ||
+            !EnemyPlayersValue::IsAllowedAlteracTarget(target, bot))
             continue;
 
         result.push_back(target->GetObjectGuid());
@@ -356,7 +358,8 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
     // Apply the flag boundary before separating player and NPC branches, so hostile
     // pets/guardians cannot keep a defender chasing after their distant owner.
     if (!EnemyPlayersValue::IsAllowedArathiDefenderTarget(target, playerToCheckAgainst) ||
-        !EnemyPlayersValue::IsAllowedWarsongTarget(target, playerToCheckAgainst))
+        !EnemyPlayersValue::IsAllowedWarsongTarget(target, playerToCheckAgainst) ||
+        !EnemyPlayersValue::IsAllowedAlteracTarget(target, playerToCheckAgainst))
         return false;
 
     // This will be used on both enemy player and npc checks

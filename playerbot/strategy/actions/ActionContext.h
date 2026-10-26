@@ -272,6 +272,9 @@ namespace ai
             creators["bg warsong mobility"] = [](PlayerbotAI* ai) { return new WarsongCarrierMobilityAction(ai); };
             creators["bg warsong regroup"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong regroup"); };
             creators["bg warsong objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong objective"); };
+            creators["bg alterac capture"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "alterac capture"); };
+            creators["bg alterac defend"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "alterac defend"); };
+            creators["bg alterac objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "alterac objective"); };
 
             // lightwell
             creators["use lightwell"] = [](PlayerbotAI* ai) { return new UseLightwellAction(ai); };

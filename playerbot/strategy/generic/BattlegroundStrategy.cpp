@@ -100,10 +100,18 @@ void WarsongStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
 void AlteracStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 {
+#ifdef MANGOSBOT_ZERO
+    triggers.push_back(new TriggerNode(
+        "bg active",
+        NextAction::array(0, new NextAction("bg alterac capture", 95.0f),
+            new NextAction("bg alterac defend", 85.0f),
+            new NextAction("bg alterac objective", 5.0f), NULL)));
+#endif
 }
 
 void AlteracStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    InitNonCombatTriggers(triggers);
     triggers.push_back(new TriggerNode(
         "very often",
         NextAction::array(0, new NextAction("bg banner", ACTION_NORMAL), NULL)));

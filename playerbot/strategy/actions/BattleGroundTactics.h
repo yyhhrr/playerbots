@@ -68,6 +68,7 @@ private:
     bool startNewPathFree(std::vector<BattleBotPath*> const& vPaths);
     bool resetObjective();
     bool wsgPaths();
+    bool moveWarsongGraveyardDrop(bool alliance);
     bool wsgRoofJump();
     bool refreshWarsongObjective();
     bool moveWarsongObjective(bool carrierOnly, bool regroupOnly);

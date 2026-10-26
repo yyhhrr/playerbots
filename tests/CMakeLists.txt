@@ -223,11 +223,35 @@ math(EXPR positions_length "${positions_end} - ${positions_begin}")
 math(EXPR routes_length "${routes_end} - ${routes_begin}")
 string(SUBSTRING "${warsong_source}" ${positions_begin} ${positions_length} warsong_positions)
 string(SUBSTRING "${warsong_source}" ${routes_begin} ${routes_length} warsong_routes)
+string(FIND "${warsong_routes}" "bool BGTactics::moveWarsongGraveyardDrop(" graveyard_drop_begin)
+if(NOT graveyard_drop_begin LESS 0)
+    string(FIND "${warsong_routes}" "bool BGTactics::wsgRoofJump()" roof_routes_begin)
+    string(SUBSTRING "${warsong_routes}" 0 ${graveyard_drop_begin} graveyard_approach_routes)
+    string(SUBSTRING "${warsong_routes}" ${roof_routes_begin} -1 roof_routes)
+    set(warsong_routes "${graveyard_approach_routes}\n${roof_routes}")
+endif()
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/warsong_movement_source.inc" "${warsong_positions}\n${warsong_routes}")
 add_executable(warsong_movement_test warsong_movement_test.cpp)
 target_include_directories(warsong_movement_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(warsong_movement_test PRIVATE cxx_std_20)
 add_test(NAME warsong_movement COMMAND warsong_movement_test)
+
+# Execute the checked WSG descent through the native motion submission boundary.
+extract_dungeon_source("${warsong_route_source}" "bool BGTactics::moveWarsongGraveyardDrop(" "bool BGTactics::wsgRoofJump()" warsong_graveyard_drop.inc)
+add_executable(warsong_graveyard_runtime_test warsong_graveyard_runtime_test.cpp)
+target_include_directories(warsong_graveyard_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(warsong_graveyard_runtime_test PRIVATE cxx_std_20)
+add_test(NAME warsong_graveyard_runtime COMMAND warsong_graveyard_runtime_test)
+
+# Execute the complete WSG progress monitor and its outer-AI wakeup.
+set(WARSONG_COMBAT_PROGRESS_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/WarsongCombatProgress.cpp" CACHE FILEPATH "Warsong pursuit progress source under test")
+extract_stealth_source("${WARSONG_COMBAT_PROGRESS_SOURCE}" "namespace ai::warsong" "" warsong_combat_progress_source.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/PlayerbotAI.cpp"
+    "    // A failed native chase" "    // Loss of a target must also stop native chase" warsong_combat_progress_outer.inc)
+add_executable(warsong_combat_progress_test warsong_combat_progress_test.cpp)
+target_include_directories(warsong_combat_progress_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_compile_features(warsong_combat_progress_test PRIVATE cxx_std_20)
+add_test(NAME warsong_combat_progress COMMAND warsong_combat_progress_test)
 
 # Exercise the actual role-to-destination block and Warsong objective movement.
 # Source overrides preserve reproducible regression checks against a saved baseline.
@@ -236,6 +260,8 @@ set(WARSONG_OBJECTIVE_ACTION_SOURCE "${warsong_route_source}" CACHE FILEPATH "Wa
 extract_dungeon_source("${WARSONG_TACTICS_SOURCE}" "Task GetTask(" "bool SelectObjective(" warsong_task_source.inc)
 extract_dungeon_source("${WARSONG_TACTICS_SOURCE}" "bool SelectObjective(" "bool CanUseFlag(" warsong_select_objective_source.inc)
 extract_dungeon_source("${WARSONG_OBJECTIVE_ACTION_SOURCE}" "bool BGTactics::refreshWarsongObjective()" "bool BGTactics::wsgPaths()" warsong_objective_actions.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/BattlegroundStrategy.cpp"
+    "void WarsongStrategy::InitNonCombatTriggers(" "void AlteracStrategy::InitNonCombatTriggers(" warsong_graveyard_registration.inc)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/warsong_objective_positions.inc" "${warsong_positions}")
 add_executable(warsong_objective_test warsong_objective_test.cpp)
 target_include_directories(warsong_objective_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")

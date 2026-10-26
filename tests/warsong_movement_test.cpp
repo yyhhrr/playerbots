@@ -88,6 +88,15 @@ namespace ai
         bool wsgPaths();
         bool wsgRoofJump();
 
+        // The complete native dispatch is covered by graveyard runtime tests.
+        bool moveWarsongGraveyardDrop(bool alliance)
+        {
+            return moveToWarsongPoint(489,
+                alliance ? 1398.7f : 1076.778076f,
+                alliance ? 1534.6f : 1396.0f,
+                alliance ? 322.5f : 324.0f, false, false, true);
+        }
+
         bool MoveTo(uint32 map, float x, float y, float z,
             bool idle = false, bool react = false, bool noPath = false)
         {
@@ -290,6 +299,34 @@ int main()
         Check(!scenario.action.wsgRoofJump(), "combat objective on same roof does not force a jump");
         Check(scenario.action.moves.empty(), "same-roof combat keeps current position");
     }
+
+    // Every stable role must leave its resurrection platform. Advance through
+    // the real route choices, rather than merely checking the first edge point.
+    for (uint32 role = 0; role != 10; ++role)
+        for (bool alliance : {false, true})
+        {
+            Scenario scenario(alliance ? Position{1415, 1554, 343, 0} : Position{1033, 1386, 340, 0},
+                {1227.446f, 1476.235f, 307.484f, 0}, role);
+            bool landed = false;
+            unsigned drops = 0;
+            for (unsigned step = 0; step < 10; ++step)
+            {
+                scenario.action.moves.clear();
+                Check(scenario.action.wsgPaths(), "a resurrected bot can advance toward the graveyard exit");
+                Check(scenario.action.moves.size() == 1, "graveyard exit chooses exactly one next movement");
+                const Movement move = scenario.action.moves.front();
+                if (move.noPath)
+                {
+                    ++drops;
+                    Check(move.z < 330 && move.z < scenario.player.position.z - 10,
+                        "the graveyard drop actually targets the lower battlefield");
+                }
+                scenario.player.position = {move.x, move.y, move.z, 0};
+                if (move.z < 330) { landed = true; break; }
+            }
+            Check(landed && drops == 1,
+                "both graveyards complete one deliberate drop for every stable route preference");
+        }
 
     // A returning carrier has a forward route at both enemy tunnel exits and
     // again on reaching midfield, for every stable route preference.

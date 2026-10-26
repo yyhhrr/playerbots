@@ -6,6 +6,7 @@
 #include "playerbot/ArathiBasinCombat.h"
 #include "playerbot/WarsongCombat.h"
 #include "playerbot/WarsongTactics.h"
+#include "playerbot/WarsongCombatProgress.h"
 #include "BattleGround/BattleGroundAB.h"
 #include "BattleGround/BattleGroundWS.h"
 #include "BattleGround/BattleGroundMgr.h"
@@ -245,6 +246,8 @@ bool EnemyPlayersValue::IsAllowedArathiDefenderTarget(Unit* target, Player* play
 
 bool EnemyPlayersValue::IsAllowedWarsongTarget(Unit* target, Player* player)
 {
+    if (player && warsong::IsCombatTargetSuppressed(player->GetPlayerbotAI(), target))
+        return false;
     BattleGroundWS* battleground = GetActiveWarsong(player);
     if (!battleground)
         return true;

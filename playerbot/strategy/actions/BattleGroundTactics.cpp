@@ -8,6 +8,8 @@
 #include "playerbot/ArathiBasinTactics.h"
 #include "playerbot/ArathiBasinCombat.h"
 #include "playerbot/WarsongTactics.h"
+#include "playerbot/WarsongGraveyardPolicy.h"
+#include "playerbot/WarsongCombatProgress.h"
 #include "playerbot/strategy/values/EnemyPlayerValue.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "MotionGenerators/MotionMaster.h"
@@ -2331,6 +2333,17 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
     const bool carrier = ai::warsong::IsCarrier(bot);
     if (carrierOnly && !carrier) return false;
     if (regroupOnly && (carrier || ai::warsong::GetTask(ai) != ai::warsong::Task::Escort)) return false;
+    auto* dropSpline = context->GetValue<int>("manual int", "warsong graveyard spline");
+    if (dropSpline->Get())
+    {
+        // Finish an owned descent before considering a new enemy or objective.
+        if (!bot->movespline->Finalized() && bot->movespline->GetId() == uint32(dropSpline->Get()) &&
+            bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+            return moveWarsongGraveyardDrop(
+                context->GetValue<bool>("manual bool", "warsong graveyard alliance")->Get());
+        dropSpline->Set(0);
+    }
+    if (getName() == "warsong descent") return false;
     if (!carrier && !regroupOnly && bot->IsInCombat())
     {
         const auto engaged = [&](Unit* target)
@@ -2347,7 +2360,8 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
         if (engaged(target) || engaged(bot->GetVictim()))
             return false;
         for (Unit* attacker : bot->getAttackers())
-            if (engaged(attacker) && attacker->GetVictim() == bot)
+            if (engaged(attacker) && attacker->GetVictim() == bot &&
+                ai::warsong::CanFightFromHere(ai, attacker))
                 return false;
     }
 
@@ -2379,6 +2393,14 @@ bool BGTactics::moveWarsongObjective(bool carrierOnly, bool regroupOnly)
             pet->GetMotionMaster()->MoveFollow(bot, PET_FOLLOW_DIST, PET_FOLLOW_ANGLE);
         }
     }
+    const ai::warsong::GraveyardPoint current =
+        {bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()};
+    // A nearby lower objective must not be swallowed by a partial ordinary
+    // navmesh path before the known graveyard exit gets a chance to run.
+    if (goal.z < 330.0f &&
+        (ai::warsong::IsOnGraveyardPlatform(true, current) ||
+         ai::warsong::IsOnGraveyardPlatform(false, current)))
+        return moveWarsongGraveyardDrop(ai::warsong::IsOnGraveyardPlatform(true, current));
     if (ai::warsong::IsPressuring(ai))
     {
         auto* spline = context->GetValue<int>("manual int", "warsong pressure spline");
@@ -2461,7 +2483,7 @@ bool BGTactics::wsgPaths()
             }
             else if (bot->GetPositionX() < 1070.f) //to the horde entrance
             {
-                return moveToWarsongPoint(bg->GetMapId(), 1076.778076f, 1396.0f, 324.0f, false, false, true);
+                return moveWarsongGraveyardDrop(false);
             }
             else if (bot->GetPositionX() < 1125.f) //to the horde entrance
             {
@@ -2582,7 +2604,7 @@ bool BGTactics::wsgPaths()
             }
             else if (bot->GetPositionX() > 1400.f) // to the field (jump down)
             {
-                return moveToWarsongPoint(bg->GetMapId(), 1398.7f, 1534.6f, 322.5f, false, false, true);
+                return moveWarsongGraveyardDrop(true);
             }
             else if (bot->GetPositionX() > 1345.f) // to the field
             {
@@ -2657,6 +2679,63 @@ bool BGTactics::wsgPaths()
         }
     }
     return false;
+}
+
+bool BGTactics::moveWarsongGraveyardDrop(bool alliance)
+{
+    BattleGround* bg = bot->GetBattleGround();
+    auto* ownedSpline = context->GetValue<int>("manual int", "warsong graveyard spline");
+    if (bot->GetMapId() != 489 || !bg || bg->GetTypeId() != BATTLEGROUND_WS ||
+        bg->GetStatus() != STATUS_IN_PROGRESS || !bot->IsInWorld() || !bot->IsAlive() ||
+        bot->IsBeingTeleported() || bot->GetTransport() || bot->IsFlying() || bot->IsInWater())
+    {
+        ownedSpline->Set(0);
+        return false;
+    }
+    if (!ai->CanMove()) return false;
+
+    MotionMaster& motion = *bot->GetMotionMaster();
+    if (ownedSpline->Get() && bot->movespline->GetId() == uint32(ownedSpline->Get()) &&
+        !bot->movespline->Finalized() && motion.GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+    {
+        SetDuration(500);
+        return true;
+    }
+    ownedSpline->Set(0);
+
+    const ai::warsong::GraveyardExit& exit = ai::warsong::GetGraveyardExit(alliance);
+    const float ground = bot->GetMap()->GetHeight(exit.landing.x, exit.landing.y, exit.landing.z + 2.0f);
+    const ai::warsong::GraveyardPoint current =
+        {bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()};
+    if (!std::isfinite(ground) || std::abs(ground - exit.landing.z) > 4.0f)
+        return false;
+    if (!ai::warsong::CanStartGraveyardDrop(alliance, current, ground))
+    {
+        if (!ai::warsong::IsOnGraveyardPlatform(alliance, current)) return false;
+        const bool moved = moveToWarsongPoint(489, exit.edge.x, exit.edge.y, exit.edge.z, false, true);
+        SetDuration(500);
+        return moved;
+    }
+    const WorldPosition landing(bot->GetMapId(), exit.landing.x, exit.landing.y, ground);
+    for (const HazardPosition& hazard : context->GetValue<std::list<HazardPosition>>("hazards")->Get())
+        if (landing.sqDistance(hazard.first) <= hazard.second * hazard.second)
+            return false;
+
+    // This is a checked, fixed WSG descent. Ordinary path building and clipping
+    // may stop at the ledge and must not replace its lower landing point.
+    UpdateMovementState();
+    ClearIdleState();
+    if (bot->IsNonMeleeSpellCasted(true, false, true)) ai->InterruptSpell(false);
+    const uint32 previousSpline = bot->movespline->GetId();
+    motion.Clear();
+    motion.MovePoint(489, exit.landing.x, exit.landing.y, ground, FORCED_MOVEMENT_RUN, false);
+    if (bot->movespline->Finalized() || bot->movespline->GetId() == previousSpline ||
+        motion.GetCurrentMovementGeneratorType() != POINT_MOTION_TYPE)
+        return false;
+    ownedSpline->Set(int(bot->movespline->GetId()));
+    context->GetValue<bool>("manual bool", "warsong graveyard alliance")->Set(alliance);
+    SetDuration(500);
+    return true;
 }
 
 bool BGTactics::wsgRoofJump()
@@ -2934,6 +3013,8 @@ bool BGTactics::Execute(Event& event)
 
     if (getName() == "warsong carry")
         return moveWarsongObjective(true, false);
+    if (getName() == "warsong descent")
+        return moveWarsongObjective(false, false);
     if (getName() == "warsong regroup")
         return moveWarsongObjective(false, true);
     if (getName() == "warsong objective")

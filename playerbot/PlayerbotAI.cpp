@@ -8,6 +8,7 @@
 #include "playerbot/WarsongTactics.h"
 #include "playerbot/ArathiBasinTactics.h"
 #include "playerbot/TargetPerception.h"
+#include "playerbot/WarsongCombatProgress.h"
 
 #include "MotionGenerators/MovementGenerator.h"
 #include "Grids/GridNotifiers.h"
@@ -603,6 +604,10 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         bot->StopMoving();
     }
+
+    // A failed native chase must not suspend Warsong tactics indefinitely.
+    if (warsong::UpdateCombatProgress(this))
+        ResetAIInternalUpdateDelay();
 
     // Loss of a target must also stop native chase while the internal engine is
     // waiting for movement or a cast, before it can face the hidden position.

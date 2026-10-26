@@ -268,6 +268,7 @@ namespace ai
             creators["attack enemy flag carrier"] = [](PlayerbotAI* ai) { return new AttackEnemyFlagCarrierAction(ai); };
             creators["bg check flag"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "check flag"); };
             creators["bg warsong carry"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong carry"); };
+            creators["bg warsong descent"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong descent"); };
             creators["bg warsong mobility"] = [](PlayerbotAI* ai) { return new WarsongCarrierMobilityAction(ai); };
             creators["bg warsong regroup"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong regroup"); };
             creators["bg warsong objective"] = [](PlayerbotAI* ai) { return new BGTactics(ai, "warsong objective"); };

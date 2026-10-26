@@ -1,9 +1,11 @@
 #include "playerbot/WarsongPolicy.h"
+#include "playerbot/WarsongGraveyardPolicy.h"
 
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <list>
 #include <map>
 #include <mutex>
 #include <set>
@@ -43,7 +45,7 @@ struct Player;
 struct Camera { void* GetBody() const { return nullptr; } };
 struct Unit
 {
-    bool alive = true, inWorld = true, hostile = true, visible = true, roleAllowed = true;
+    bool alive = true, inWorld = true, hostile = true, visible = true, roleAllowed = true, fightable = true;
     void* world = nullptr;
     Unit* victim = nullptr;
     float x = 0, y = 0, z = 0;
@@ -52,6 +54,7 @@ struct Unit
     void* GetMap() const { return world; }
     Unit* GetVictim() const { return victim; }
     float GetPositionX() const { return x; }
+    float GetPositionY() const { return y; }
     float GetPositionZ() const { return z; }
     bool IsVisibleForOrDetect(const Player*, void*, bool) const { return visible; }
 };
@@ -186,6 +189,7 @@ namespace ai::warsong
     PlayerbotAI* activeAI = nullptr;
     std::mutex plansMutex;
     bool IsCarrier(Player* bot) { return bot->carrier; }
+    bool CanFightFromHere(PlayerbotAI*, Unit* target) { return target && target->fightable; }
     BattleGroundWS* ActiveWarsong(Player* bot)
     {
         return bot && bot->alive && bot->bg && bot->bg->status == STATUS_IN_PROGRESS && bot->mapId == 489 ? bot->bg : nullptr;
@@ -228,12 +232,14 @@ public:
     std::string name = "warsong objective";
     bool moveResult = true, routeResult = false, waypointResult = false, flagResult = false;
     bool launchMotion = true;
-    unsigned routes = 0, waypoints = 0;
+    bool dropResult = false;
+    unsigned routes = 0, waypoints = 0, drops = 0;
     uint32 duration = 0;
     std::vector<Order> orders;
     bool refreshWarsongObjective();
     bool moveToWarsongPoint(uint32, float, float, float, bool = false, bool = false, bool = false);
     bool moveWarsongObjective(bool, bool);
+    bool moveWarsongGraveyardDrop(bool) { ++drops; return dropResult; }
     const std::string& getName() const { return name; }
     bool atFlag(const std::vector<BattleBotPath*>&, const std::vector<uint32>&) { return flagResult; }
     void LaunchMotion()
@@ -253,6 +259,36 @@ public:
     }
 };
 #include "warsong_objective_actions.inc"
+
+struct NextAction
+{
+    std::string name;
+    float priority;
+    NextAction(const char* next, float value) : name(next), priority(value) {}
+    template<class... Actions> static std::vector<NextAction*> array(int, Actions... actions)
+    {
+        std::vector<NextAction*> result;
+        const auto add = [&](auto action)
+        {
+            if constexpr (std::is_pointer_v<decltype(action)>) if (action) result.push_back(action);
+        };
+        (add(actions), ...);
+        return result;
+    }
+};
+struct TriggerNode
+{
+    std::string name;
+    std::vector<NextAction*> actions;
+    TriggerNode(const char* next, std::vector<NextAction*> values) : name(next), actions(std::move(values)) {}
+    ~TriggerNode() { for (NextAction* action : actions) delete action; }
+};
+struct WarsongStrategy
+{
+    void InitNonCombatTriggers(std::list<TriggerNode*>&);
+    void InitCombatTriggers(std::list<TriggerNode*>&);
+};
+#include "warsong_graveyard_registration.inc"
 
 namespace
 {
@@ -443,9 +479,76 @@ int main()
     }
     {
         Fixture f; f.OurTeamCarries(); f.action.refreshWarsongObjective(); f.bot.inCombat = true;
+        Unit enemy = f.Enemy(); enemy.victim = &f.bot; enemy.fightable = false; f.bot.attackers = {&enemy};
+        Check(f.action.moveWarsongObjective(false, false) && !f.action.orders.empty(),
+            "an unreachable enemy cannot pin strategic movement merely by keeping the bot as its attack victim");
+    }
+    {
+        Fixture f; f.OurTeamCarries(); f.action.refreshWarsongObjective(); f.bot.inCombat = true;
         Unit enemy = f.Enemy(); f.bot.victim = &enemy;
         Check(!f.action.moveWarsongObjective(false, false) && f.action.orders.empty(),
             "a live native attack victim retains combat priority even if the AI target has not caught up");
+    }
+    {
+        Fixture f; f.OurTeamCarries(); f.action.refreshWarsongObjective(); f.bot.inCombat = true;
+        Unit enemy = f.Enemy(); f.ai.currentTarget = &enemy; f.context.guids["current target"].data = {9};
+        f.context.integers["warsong graveyard spline"].data = 73;
+        f.bot.spline.id = 73; f.bot.spline.finalized = false; f.bot.motion.type = POINT_MOTION_TYPE;
+        f.action.dropResult = true;
+        Check(f.action.moveWarsongObjective(false, false) && f.action.drops == 1 && f.action.orders.empty(),
+            "an owned active graveyard descent finishes before an enemy can interrupt strategic movement");
+    }
+    for (unsigned invalid = 0; invalid < 3; ++invalid)
+    {
+        Fixture f; f.OurTeamCarries(); f.action.refreshWarsongObjective(); f.bot.inCombat = true;
+        Unit enemy = f.Enemy(); f.ai.currentTarget = &enemy; f.context.guids["current target"].data = {9};
+        f.context.integers["warsong graveyard spline"].data = 73;
+        f.bot.spline.id = invalid == 0 ? 74 : 73;
+        f.bot.spline.finalized = invalid == 1;
+        f.bot.motion.type = invalid == 2 ? CHASE_MOTION_TYPE : POINT_MOTION_TYPE;
+        Check(!f.action.moveWarsongObjective(false, false) && f.action.drops == 0 &&
+            f.context.integers["warsong graveyard spline"].data == 0,
+            "a foreign, completed or replaced spline cannot masquerade as an ongoing graveyard descent");
+    }
+    for (bool alliance : {false, true})
+        for (Task task : {Task::Recover, Task::Escort})
+        {
+            Fixture f; f.action.refreshWarsongObjective();
+            const auto exit = GetGraveyardExit(alliance);
+            f.bot.x = exit.edge.x; f.bot.y = exit.edge.y; f.bot.z = exit.edge.z;
+            f.context.integers["warsong task"].data = int(task);
+            f.context.positions.data["bg objective"].Set(exit.landing.x, exit.landing.y, exit.landing.z, 489);
+            f.action.dropResult = true; f.action.routeResult = true;
+            Check(f.action.moveWarsongObjective(false, false) && f.action.drops == 1 &&
+                f.action.routes == 0 && f.action.waypoints == 0 && f.action.orders.empty(),
+                "a nearby lower escort or recovery objective uses the known graveyard exit before a partial ordinary path");
+        }
+    {
+        Fixture f; f.action.refreshWarsongObjective(); f.action.name = "warsong descent";
+        f.action.dropResult = true;
+        Check(!f.action.moveWarsongObjective(false, false) && f.action.drops == 0 && f.action.routes == 0 && f.action.orders.empty(),
+            "the high-priority descent continuation cannot start unrelated strategic movement");
+    }
+    {
+        WarsongStrategy strategy;
+        for (bool combat : {false, true})
+        {
+            std::list<TriggerNode*> triggers;
+            if (combat) strategy.InitCombatTriggers(triggers); else strategy.InitNonCombatTriggers(triggers);
+            unsigned descents = 0;
+            for (TriggerNode* trigger : triggers)
+            {
+                for (NextAction* action : trigger->actions)
+                    if (action->name == "bg warsong descent")
+                    {
+                        ++descents;
+                        Check(action->priority == 100 && trigger->name == "bg active",
+                            "an already launched descent outranks target selection in the active battleground strategy");
+                    }
+                delete trigger;
+            }
+            Check(descents == 1, "each combat state registers one descent continuation");
+        }
     }
     {
         Fixture f; f.OurTeamCarries(); f.action.refreshWarsongObjective(); f.bot.inCombat = true;

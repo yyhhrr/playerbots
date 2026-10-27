@@ -70,6 +70,8 @@ namespace ai
             creators["reset strats"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "reset strats"); };
             creators["reset values"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "reset values"); };
             creators["destroy"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "destroy"); };
+            creators["clear bags"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "clear bags"); };
+            creators["\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85"); }; // 清空背包
             creators["emote"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "emote"); };
             creators["buff"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "buff"); };
             creators["help"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "help"); };

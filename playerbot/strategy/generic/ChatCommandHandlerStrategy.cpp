@@ -56,6 +56,8 @@ ChatCommandHandlerStrategy::ChatCommandHandlerStrategy(PlayerbotAI* ai) : PassTr
     supported.push_back("chat");
     supported.push_back("home");
     supported.push_back("destroy");
+    supported.push_back("clear bags");
+    supported.push_back("\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85"); // 清空背包
     supported.push_back("load ai");
     supported.push_back("list ai");
     supported.push_back("save ai");

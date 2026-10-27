@@ -142,6 +142,8 @@ namespace ai
             creators["chat"] = [](PlayerbotAI* ai) { return new ChangeChatAction(ai); };
             creators["home"] = [](PlayerbotAI* ai) { return new SetHomeAction(ai); };
             creators["destroy"] = [](PlayerbotAI* ai) { return new DestroyItemAction(ai); };
+            creators["clear bags"] = [](PlayerbotAI* ai) { return new ClearBagsAction(ai); };
+            creators["\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85"] = creators["clear bags"]; // 清空背包
             creators["load ai"] = [](PlayerbotAI* ai) { return new LoadAiAction(ai); };
             creators["list ai"] = [](PlayerbotAI* ai) { return new ListAiAction(ai); };
             creators["save ai"] = [](PlayerbotAI* ai) { return new SaveAiAction(ai); };

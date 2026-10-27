@@ -414,3 +414,23 @@ target_include_directories(alterac_combat_runtime_test PRIVATE "${CMAKE_CURRENT_
 target_compile_features(alterac_combat_runtime_test PRIVATE cxx_std_20)
 target_compile_definitions(alterac_combat_runtime_test PRIVATE MANGOSBOT_ZERO)
 add_test(NAME alterac_combat_runtime COMMAND alterac_combat_runtime_test)
+
+# Exercise the real clear-bags command, registrations and chat event parser.
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/DestroyItemAction.cpp"
+    "bool ClearBagsAction::Execute(Event& event)" "" clear_bags_action_source.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/ChatCommandTrigger.h"
+    "namespace ai" "" clear_bags_chat_trigger.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/ChatActionContext.h"
+    "            creators[\"clear bags\"]" "            creators[\"load ai\"]" clear_bags_action_registration.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/ChatTriggerContext.h"
+    "            creators[\"clear bags\"]" "            creators[\"emote\"]" clear_bags_trigger_registration.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/ChatCommandHandlerStrategy.cpp"
+    "    supported.push_back(\"clear bags\");" "    supported.push_back(\"load ai\");" clear_bags_supported.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/ExternalEventHelper.h"
+    "        bool ParseChatCommand(" "        bool HandlePacket(" clear_bags_parse_command.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/ExternalEventHelper.h"
+    "        bool HandleCommand(" "    private:" clear_bags_handle_command.inc)
+add_executable(clear_bags_runtime_test clear_bags_runtime_test.cpp)
+target_include_directories(clear_bags_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(clear_bags_runtime_test PRIVATE cxx_std_20)
+add_test(NAME clear_bags_runtime COMMAND clear_bags_runtime_test)

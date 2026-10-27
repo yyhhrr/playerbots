@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "DestroyItemAction.h"
+#include "playerbot/PlayerbotSecurity.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
 
 using namespace ai;
@@ -166,4 +167,91 @@ bool DestroyAllGrayItemsAction::Execute(Event& event)
     }
 
     return hasDestroyedAnyItems;
+}
+
+bool ClearBagsAction::Execute(Event& event)
+{
+    Player* requester = event.getOwner();
+    // Recheck membership when executing, including commands queued before leaving a group.
+    if (!requester || requester == bot || ai->IsRealPlayer() || !bot->GetGroup() ||
+        requester->GetGroup() != bot->GetGroup() ||
+        (requester->GetPlayerbotAI() && !requester->GetPlayerbotAI()->IsRealPlayer()) ||
+        !ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, requester))
+        return false;
+
+    if (!event.getParam().empty())
+    {
+        // Usage: clear bags / 清空背包, without extra arguments.
+        ai->TellPlayerNoFacing(requester, "\xE7\x94\xA8\xE6\xB3\x95\xEF\xBC\x9A\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85 (clear bags)",
+            PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false, true);
+        return false;
+    }
+
+    if (bot->GetTradeData())
+    {
+        // Finish trading before clearing the bags.
+        ai->TellPlayerNoFacing(requester, "\xE6\xAD\xA3\xE5\x9C\xA8\xE4\xBA\xA4\xE6\x98\x93\xEF\xBC\x8C\xE8\xAF\xB7\xE7\xBB\x93\xE6\x9D\x9F\xE4\xBA\xA4\xE6\x98\x93\xE5\x90\x8E\xE9\x87\x8D\xE8\xAF\x95\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85\xE3\x80\x82",
+            PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, true, false, true);
+        return false;
+    }
+
+    // Spell may retain pointers to both a cast item and an item being enchanted.
+    const char* busyMessage = "\xE6\xAD\xA3\xE5\x9C\xA8\xE6\x96\xBD\xE6\xB3\x95\xE6\x88\x96\xE4\xBD\xBF\xE7\x94\xA8\xE7\x89\xA9\xE5\x93\x81\xEF\xBC\x8C\xE8\xAF\xB7\xE7\xBB\x93\xE6\x9D\x9F\xE5\x90\x8E\xE9\x87\x8D\xE8\xAF\x95\xE6\xB8\x85\xE7\xA9\xBA\xE8\x83\x8C\xE5\x8C\x85\xE3\x80\x82";
+    if (bot->IsNonMeleeSpellCasted(true))
+    {
+        ai->TellPlayerNoFacing(requester, busyMessage, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL,
+            true, false, true);
+        return false;
+    }
+
+    bool itemInUse = false;
+    std::vector<std::pair<uint8, uint8>> positions;
+    auto collectAt = [&](uint8 bag, uint8 slot)
+    {
+        if (Item* item = bot->GetItemByPos(bag, slot))
+        {
+            itemInUse = itemInUse || item->IsUsedInSpell();
+            positions.emplace_back(bag, slot);
+        }
+    };
+
+    // The generic inventory visitor also includes the keyring. Use only bag contents here.
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        collectAt(INVENTORY_SLOT_BAG_0, slot);
+
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+        if (Bag* container = static_cast<Bag*>(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bag)))
+            for (uint32 slot = 0; slot < container->GetBagSize(); ++slot)
+                collectAt(bag, static_cast<uint8>(slot));
+
+    // Preflight every bag before deleting anything, including items held by delayed spells.
+    if (itemInUse)
+    {
+        ai->TellPlayerNoFacing(requester, busyMessage, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL,
+            true, false, true);
+        return false;
+    }
+
+    uint32 stacksDestroyed = 0;
+    uint64 itemsDestroyed = 0;
+    for (const auto& [bag, slot] : positions)
+        if (Item* item = bot->GetItemByPos(bag, slot))
+        {
+            itemsDestroyed += item->GetCount();
+            ++stacksDestroyed;
+            // Native removal updates quest objectives and the normal inventory save queue.
+            bot->DestroyItem(bag, slot, true);
+        }
+
+    for (const char* name : { "bag space", "inventory items", "inventory item ids", "item count",
+        "item usage", "item for spell", "stack space for item" })
+        context->ClearValues(name);
+
+    // Bags cleared: N stacks (M items). Reply once per bot, privately to the requester.
+    const std::string message = "\xE8\x83\x8C\xE5\x8C\x85\xE5\xB7\xB2\xE6\xB8\x85\xE7\xA9\xBA\xEF\xBC\x8C\xE5\x85\xB1\xE9\x94\x80\xE6\xAF\x81 " +
+        std::to_string(stacksDestroyed) + " \xE7\xBB\x84\xE7\x89\xA9\xE5\x93\x81\xEF\xBC\x88" +
+        std::to_string(itemsDestroyed) + " \xE4\xBB\xB6\xEF\xBC\x89\xE3\x80\x82";
+    ai->TellPlayerNoFacing(requester, message, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL,
+        true, false, true);
+    return true;
 }

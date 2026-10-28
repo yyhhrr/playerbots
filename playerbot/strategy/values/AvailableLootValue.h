@@ -37,9 +37,10 @@ namespace ai
             LootObject loot = AI_VALUE(LootObject, "loot target");
 
             return !loot.IsEmpty() &&
-                    loot.GetWorldObject(bot) &&    
+                    !AI_VALUE(LootObjectStack*, "available loot")->IsDeferred(loot.guid) &&
+                    !AI_VALUE(LootObjectStack*, "available loot")->IsLootOpening(loot.guid) &&
                     loot.IsLootPossible(bot) &&
-                    sServerFacade.IsDistanceLessOrEqualThan(AI_VALUE2(float, "distance", "loot target"), INTERACTION_DISTANCE);
+                    loot.IsWithinLootDistance(bot);
         }
     };
 }

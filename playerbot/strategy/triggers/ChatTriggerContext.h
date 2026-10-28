@@ -26,7 +26,8 @@ namespace ai
             creators["ll"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "ll"); };
             creators["ss"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "ss"); };
             creators["avoid creature"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "avoid creature"); };
-            creators["loot"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "add all loot"); };
+            creators["loot"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "loot"); };
+            creators["\xE6\x8B\xBE\xE5\x8F\x96"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "\xE6\x8B\xBE\xE5\x8F\x96"); }; // Chinese loot command
             creators["add all loot"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "add all loot"); };
             creators["release"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "release"); };
             creators["teleport"] = [](PlayerbotAI* ai) { return new ChatCommandTrigger(ai, "teleport"); };

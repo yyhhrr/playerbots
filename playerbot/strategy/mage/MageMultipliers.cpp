@@ -17,14 +17,21 @@ float MageAoeCommitMultiplier::GetValue(Action* action)
         return 1.0f;
 
     const std::string name = action->getName();
+    if (name == "blink" && (bot->HasAuraType(SPELL_AURA_MOD_ROOT) || bot->HasAuraType(SPELL_AURA_MOD_STUN)))
+        return 1.0f;
     // Flee also handles harmful ground effects; keep that movement available.
     if ((name == "flee" || name == "runaway") && AI_VALUE2(bool, "has area debuff", "self target"))
         return 1.0f;
+
+    const bool closeThreat = FindMagePveRetreatTarget(ai) != nullptr;
 
     // A spell already being cast is not "useful" to start again. Keep its cast
     // or channel committed instead of letting an escape action interrupt it.
     for (CurrentSpellTypes slot : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL })
     {
+        // A ground AOE elsewhere must not pin the mage beside a close attacker.
+        if (closeThreat)
+            break;
         Spell* current = bot->GetCurrentSpell(slot);
         if (!current || current->getState() == SPELL_STATE_FINISHED)
             continue;
@@ -38,18 +45,14 @@ float MageAoeCommitMultiplier::GetValue(Action* action)
 
     // Only hold position while a real, affordable and control-safe AOE is ready.
     // If no spell can be cast, normal escape and mana recovery remain available.
-    for (const char* spell : { "leveling arcane explosion", "arcane explosion", "flamestrike", "blizzard" })
+    for (const char* spell : { "mage ot arcane explosion", "flamestrike", "blizzard" })
     {
         const std::string_view spellName = spell;
-        // Only consider spells that this specialization actually schedules.
-        if (spellName == "arcane explosion" && strategyName.find("arcane") == std::string::npos)
+        // Only a real, affordable, control-safe local explosion justifies staying
+        // beside enemies. Distant packs cannot disable close-range repositioning.
+        if (closeThreat && spellName != "mage ot arcane explosion")
             continue;
-        if (spellName == "arcane explosion")
-        {
-            Trigger* trigger = context->GetTrigger("mage arcane explosion aoe");
-            if (!trigger || !trigger->IsActive())
-                continue;
-        }
+        // Only consider spells that this specialization actually schedules.
         if (spellName == "flamestrike" && strategyName.find("frost") != std::string::npos)
         {
             Trigger* trigger = context->GetTrigger("frost spells locked");

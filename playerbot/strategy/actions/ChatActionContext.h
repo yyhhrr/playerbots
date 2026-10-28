@@ -109,6 +109,7 @@ namespace ai
             creators["ss"] = [](PlayerbotAI* ai) { return new SkipSpellsListAction(ai); };
             creators["avoid creature"] = [](PlayerbotAI* ai) { return new AvoidCreatureListAction(ai); };
             creators["loot"] = [](PlayerbotAI* ai) { return new AddAllLootAction(ai); };
+            creators["\xE6\x8B\xBE\xE5\x8F\x96"] = creators["loot"]; // Chinese loot command
             creators["add all loot"] = [](PlayerbotAI* ai) { return new AddAllLootAction(ai); };
             creators["roll"] = [](PlayerbotAI* ai) { return new RollAction(ai); };
             creators["need roll"] = [](PlayerbotAI* ai) { return new NeedRollAction(ai); };

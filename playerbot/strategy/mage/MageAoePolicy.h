@@ -20,13 +20,13 @@ namespace ai
 
     inline bool IsMageAoeDamageAction(std::string_view name)
     {
-        return name == "arcane explosion" || name == "leveling arcane explosion" ||
+        return name == "arcane explosion" || name == "leveling arcane explosion" || name == "mage ot arcane explosion" ||
             name == "flamestrike" || name == "blizzard";
     }
 
     inline bool IsMageAoeDisengageAction(std::string_view name)
     {
-        return name == "flee" || name == "runaway" || name == "flee with pet" ||
+        return name == "flee" || name == "runaway" || name == "flee with pet" || name == "mage pve retreat" ||
             name == "invisibility" || name == "lesser invisibility" || name == "ice block" ||
             name == "shoot" || name == "evocation" || name == "blink";
     }

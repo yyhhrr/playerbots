@@ -145,7 +145,8 @@ function(extract_courage_source source marker end_marker output)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${output}" "${courage_function}")
 endfunction()
 extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/ThreatStrategy.cpp" "float ThreatMultiplier::GetValue(" "void ThreatStrategy::InitCombatMultipliers(" mage_aoe_courage_threat.inc)
-extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageMultipliers.cpp" "float MageAoeCommitMultiplier::GetValue(" "" mage_aoe_courage_multiplier.inc)
+set(MAGE_AOE_COMMIT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageMultipliers.cpp" CACHE FILEPATH "Mage AOE commitment source under test")
+extract_courage_source("${MAGE_AOE_COMMIT_SOURCE}" "float MageAoeCommitMultiplier::GetValue(" "" mage_aoe_courage_multiplier.inc)
 extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageActions.cpp" "bool CastBlizzardAction::IsAoeReady(" "" mage_aoe_courage_blizzard.inc)
 extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageStrategy.cpp" "void MageAoeStrategy::InitCombatMultipliers(" "#ifdef MANGOSBOT_ZERO" mage_aoe_courage_registration.inc)
 add_executable(mage_aoe_courage_test mage_aoe_courage_test.cpp)
@@ -160,6 +161,97 @@ add_executable(mage_pvp_retreat_test mage_pvp_retreat_test.cpp)
 target_include_directories(mage_pvp_retreat_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(mage_pvp_retreat_test PRIVATE cxx_std_20)
 add_test(NAME mage_pvp_retreat COMMAND mage_pvp_retreat_test)
+
+# Execute the mage-specific nearby-threat selector and movement delegation.
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageAoe.cpp"
+    "Unit* ai::FindMagePveRetreatTarget(PlayerbotAI* ai)" "bool ai::FindMageAoeTarget(" mage_spacing_selector.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageTriggers.cpp"
+    "bool MagePveRetreatTrigger::IsActive()" "Unit* MageOtArcaneExplosionTrigger::GetTarget()" mage_spacing_trigger.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageActions.cpp"
+    "bool MagePveRetreatAction::isUseful()" "bool CastMageGroundAoeAction::SelectAoeTarget(" mage_spacing_action.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageActions.h"
+    "    class MagePveRetreatAction" "    BUFF_ACTION(CastFireWardAction" mage_spacing_action_class.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/MovementActions.h"
+    "        bool ShouldReactionInterruptCast() const override { return true; }" "    private:" mage_spacing_base_reaction_flags.inc)
+set(spacing_strategy_path "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageStrategy.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${spacing_strategy_path}")
+foreach(spacing_phase IN ITEMS Combat Reaction)
+    file(READ "${spacing_strategy_path}" spacing_strategy_remainder)
+    if(spacing_phase STREQUAL "Combat")
+        set(spacing_end_marker "void MageStrategy::InitNonCombatTriggers(")
+        set(spacing_registration_prefix "mage_spacing_registration")
+    else()
+        set(spacing_end_marker "void MageStrategy::InitDeadTriggers(")
+        set(spacing_registration_prefix "mage_spacing_reaction_registration")
+    endif()
+    foreach(spacing_edition RANGE 0 2)
+        string(FIND "${spacing_strategy_remainder}" "void MageStrategy::Init${spacing_phase}Triggers(" spacing_begin)
+        if(spacing_begin LESS 0)
+            message(FATAL_ERROR "Mage ${spacing_phase} registration ${spacing_edition} is missing")
+        endif()
+        string(SUBSTRING "${spacing_strategy_remainder}" ${spacing_begin} -1 spacing_strategy_remainder)
+        string(FIND "${spacing_strategy_remainder}" "${spacing_end_marker}" spacing_end)
+        if(spacing_end LESS 0)
+            message(FATAL_ERROR "Mage ${spacing_phase} registration end marker is missing")
+        endif()
+        string(SUBSTRING "${spacing_strategy_remainder}" 0 ${spacing_end} spacing_registration)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/${spacing_registration_prefix}_${spacing_edition}.inc" "${spacing_registration}")
+        string(SUBSTRING "${spacing_strategy_remainder}" ${spacing_end} -1 spacing_strategy_remainder)
+    endforeach()
+endforeach()
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageStrategy.cpp"
+    "void MageAoeStrategy::InitReactionTriggers(" "void MageAoeStrategy::InitCombatMultipliers(" mage_spacing_aoe_reaction.inc)
+# Validate all expansion-specific AOE priorities and existing control responses.
+foreach(spacing_kind IN ITEMS Arcane Fire Frost Cc BaseAoe)
+    string(TOLOWER "${spacing_kind}" spacing_kind_lower)
+    if(spacing_kind STREQUAL "Cc" OR spacing_kind STREQUAL "BaseAoe")
+        set(spacing_priority_path "${spacing_strategy_path}")
+        if(spacing_kind STREQUAL "Cc")
+            set(spacing_priority_class "MageCcStrategy")
+        else()
+            set(spacing_priority_class "MageAoeStrategy")
+        endif()
+    else()
+        set(spacing_priority_path "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/${spacing_kind}MageStrategy.cpp")
+        set(spacing_priority_class "${spacing_kind}MageAoeStrategy")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${spacing_priority_path}")
+    file(READ "${spacing_priority_path}" spacing_priority_remainder)
+    foreach(spacing_edition RANGE 0 2)
+        string(FIND "${spacing_priority_remainder}" "void ${spacing_priority_class}::InitCombatTriggers(" spacing_begin)
+        if(spacing_begin LESS 0)
+            message(FATAL_ERROR "Mage ${spacing_kind} priority registration ${spacing_edition} is missing")
+        endif()
+        string(SUBSTRING "${spacing_priority_remainder}" ${spacing_begin} -1 spacing_priority_remainder)
+        string(FIND "${spacing_priority_remainder}" "void ${spacing_priority_class}::InitNonCombatTriggers(" spacing_end)
+        if(spacing_end LESS 0)
+            message(FATAL_ERROR "Mage ${spacing_kind} priority registration end marker is missing")
+        endif()
+        string(SUBSTRING "${spacing_priority_remainder}" 0 ${spacing_end} spacing_priority_registration)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mage_spacing_${spacing_kind_lower}_${spacing_edition}.inc" "${spacing_priority_registration}")
+        string(SUBSTRING "${spacing_priority_remainder}" ${spacing_end} -1 spacing_priority_remainder)
+    endforeach()
+endforeach()
+set(spacing_context_path "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageAiObjectContext.cpp")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${spacing_context_path}")
+file(STRINGS "${spacing_context_path}" spacing_factory_lines REGEX "creators\\[\"mage pve retreat\"\\]")
+foreach(spacing_kind IN ITEMS Trigger Action)
+    string(TOLOWER "${spacing_kind}" spacing_kind_lower)
+    set(spacing_factory "")
+    foreach(spacing_line IN LISTS spacing_factory_lines)
+        if(spacing_line MATCHES "new MagePveRetreat${spacing_kind}\\(ai\\)")
+            string(APPEND spacing_factory "${spacing_line}\n")
+        endif()
+    endforeach()
+    if(spacing_factory STREQUAL "")
+        message(FATAL_ERROR "Mage PvE retreat ${spacing_kind} factory is missing")
+    endif()
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mage_spacing_${spacing_kind_lower}_factory.inc" "${spacing_factory}")
+endforeach()
+add_executable(mage_spacing_runtime_test mage_spacing_runtime_test.cpp)
+target_include_directories(mage_spacing_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(mage_spacing_runtime_test PRIVATE cxx_std_20)
+add_test(NAME mage_spacing_runtime COMMAND mage_spacing_runtime_test)
 
 # Exercise the live Arathi threat scan, capture interruption/backoff, outer AI
 # wakeup and defender return action against a deterministic small battlefield.
@@ -203,6 +295,12 @@ endif()
 math(EXPR arcane_action_length "${arcane_action_end} - ${arcane_action_begin}")
 string(SUBSTRING "${arcane_action_source}" ${arcane_action_begin} ${arcane_action_length} arcane_actions)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mage_arcane_explosion_actions.inc" "${arcane_actions}")
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageActions.cpp"
+    "bool CastMageOtArcaneExplosionAction::CanReplaceCurrentCast(" "bool MagePveRetreatAction::isUseful()" mage_ot_arcane_explosion_action.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageTriggers.h"
+    "    class MageOtArcaneExplosionTrigger" "    class MageGroundAoeTrigger" mage_ot_arcane_explosion_trigger_class.inc)
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/mage/MageTriggers.cpp"
+    "Unit* MageOtArcaneExplosionTrigger::GetTarget()" "bool MageGroundAoeTrigger::IsActive()" mage_ot_arcane_explosion_trigger.inc)
 add_executable(mage_arcane_explosion_test mage_arcane_explosion_test.cpp)
 target_include_directories(mage_arcane_explosion_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_compile_features(mage_arcane_explosion_test PRIVATE cxx_std_20)
@@ -434,3 +532,68 @@ add_executable(clear_bags_runtime_test clear_bags_runtime_test.cpp)
 target_include_directories(clear_bags_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(clear_bags_runtime_test PRIVATE cxx_std_20)
 add_test(NAME clear_bags_runtime COMMAND clear_bags_runtime_test)
+
+# Run actual loot admission and manual command aliases against controlled world objects.
+set(LOOT_MASTER_ADMISSION_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/AddLootAction.cpp" CACHE FILEPATH "Loot admission source under test")
+extract_stealth_source("${LOOT_MASTER_ADMISSION_SOURCE}"
+    "bool AddAllLootAction::Execute(Event& event)" "bool AddLootAction::isUseful()" loot_master_scan.inc)
+extract_stealth_source("${LOOT_MASTER_ADMISSION_SOURCE}"
+    "bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)" "bool AddGatheringLootAction::AddLoot(" loot_master_admission.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/ChatTriggerContext.h"
+    "            creators[\"loot\"]" "            creators[\"release\"]" loot_master_trigger_registration.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/ChatActionContext.h"
+    "            creators[\"loot\"]" "            creators[\"roll\"]" loot_master_action_registration.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/ChatCommandHandlerStrategy.cpp"
+    "    // Manual loot aliases share the complete scan/select/move/open action chain."
+    "    triggers.push_back(new TriggerNode(\n        \"u\","
+    loot_master_command_chain.inc)
+add_executable(loot_master_runtime_test loot_master_runtime_test.cpp)
+target_include_directories(loot_master_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(loot_master_runtime_test PRIVATE cxx_std_20)
+add_test(NAME loot_master_runtime COMMAND loot_master_runtime_test)
+
+# Keep task ownership, real loot eligibility and the packet-to-inventory flow coherent.
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack.h"
+    "namespace ai" "" loot_task_declarations.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack.cpp"
+    "bool LootObject::IsWithinLootDistance(Player* bot)" "" loot_task_source.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack.cpp"
+    "    Creature* creature = ai->GetCreature(guid);" "    GameObject* go = ai->GetGameObject(guid);" loot_task_creature_refresh.inc)
+add_executable(loot_task_runtime_test loot_task_runtime_test.cpp)
+target_include_directories(loot_task_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(loot_task_runtime_test PRIVATE cxx_std_20)
+add_test(NAME loot_task_runtime COMMAND loot_task_runtime_test)
+
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/LootValues.cpp"
+    "bool ShouldLootObject::Calculate()" "void ActiveRolls::CleanUp(" loot_permissions_source.inc)
+foreach(loot_variant IN ITEMS classic expansion)
+    add_executable(loot_permissions_${loot_variant}_test loot_permissions_runtime_test.cpp)
+    target_include_directories(loot_permissions_${loot_variant}_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_features(loot_permissions_${loot_variant}_test PRIVATE cxx_std_20)
+    if(loot_variant STREQUAL "classic")
+        target_compile_definitions(loot_permissions_${loot_variant}_test PRIVATE MANGOSBOT_ZERO)
+    endif()
+    add_test(NAME loot_permissions_${loot_variant} COMMAND loot_permissions_${loot_variant}_test)
+endforeach()
+
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack.cpp"
+    "bool LootObject::IsWithinLootDistance(Player* bot)" "bool LootObjectStack::Add(ObjectGuid guid)" loot_flow_distance.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/LootAction.cpp"
+    "bool LootAction::Execute(Event& event)" "enum ProfessionSpells" loot_flow_select.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/LootAction.cpp"
+    "bool OpenLootAction::Execute(Event& event)" "bool OpenLootAction::DoLoot(" loot_flow_open.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/LootAction.cpp"
+    "bool StoreLootAction::Execute(Event& event)" "bool StoreLootAction::IsLootAllowed(" loot_flow_store.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/MovementActions.cpp"
+    "bool MoveToLootAction::Execute(Event& event)" "bool MoveOutOfEnemyContactAction::Execute(" loot_flow_move.inc)
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/AvailableLootValue.h"
+    "    class CanLootValue" "" loot_flow_can_loot.inc)
+file(READ "${CMAKE_CURRENT_BINARY_DIR}/loot_flow_can_loot.inc" loot_can_loot_class)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/loot_flow_can_loot.inc" "namespace ai\n{\n${loot_can_loot_class}")
+extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/LootTriggers.cpp"
+    "bool FarFromCurrentLootTrigger::IsActive()" "bool CanLootTrigger::IsActive()" loot_flow_far_trigger.inc)
+add_executable(loot_flow_runtime_test loot_flow_runtime_test.cpp)
+target_include_directories(loot_flow_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(loot_flow_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(loot_flow_runtime_test PRIVATE MANGOSBOT_ZERO)
+add_test(NAME loot_flow_runtime COMMAND loot_flow_runtime_test)

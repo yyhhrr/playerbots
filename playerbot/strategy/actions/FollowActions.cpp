@@ -91,6 +91,10 @@ bool FollowAction::isUseful()
         return true;
     }
 
+    // Let a short, progressing loot task finish before ordinary formation following resumes.
+    if (AI_VALUE(LootObjectStack*, "available loot")->ShouldHoldFollow())
+        return false;
+
     // maybe jump is faster?
     if (ai->HasStrategy("follow jump", BotState::BOT_STATE_NON_COMBAT) && ai->AllowActivity())
     {
@@ -204,8 +208,7 @@ bool FleeToMasterAction::isUseful()
             return false;
     }
 
-    LootObject loot = AI_VALUE(LootObject, "loot target");
-    if (loot.IsLootPossible(bot))
+    if (AI_VALUE(LootObjectStack*, "available loot")->ShouldHoldFollow())
         return false;
 
     return true;

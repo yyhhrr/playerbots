@@ -46,9 +46,13 @@ namespace ai
     {
     public:
         MageAoeStrategy(PlayerbotAI* ai) : AoeStrategy(ai) {}
+        void OnStrategyAdded(BotState state) override;
+        void OnStrategyRemoved(BotState state) override;
 
     protected:
         void InitCombatMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitReactionMultipliers(std::list<Multiplier*>& multipliers) override;
+        void InitReactionTriggers(std::list<TriggerNode*>& triggers) override;
         virtual void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;
         virtual void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
     };

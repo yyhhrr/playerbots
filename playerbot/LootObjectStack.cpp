@@ -71,7 +71,8 @@ void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
             this->guid = guid;
         }
 
-        if (creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE))
+        if (creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE) &&
+            !creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
         {
             skillId = creature->GetCreatureInfo()->GetRequiredLootSkill();
             uint32 targetLevel = creature->GetLevel();
@@ -268,7 +269,7 @@ bool LootObject::IsLootPossible(Player* bot)
 
     AiObjectContext* context = ai->GetAiObjectContext();
 
-    if (!AI_VALUE2_LAZY(bool, "should loot object", std::to_string(guid.GetRawValue())))
+    if (!AI_VALUE2(bool, "should loot object", std::to_string(guid.GetRawValue())))
         return false;
 
     // Check if the game object has quest loot and bot has the quest for it
@@ -340,8 +341,22 @@ bool LootObject::IsLootPossible(Player* bot)
     return true;
 }
 
+bool LootObject::IsWithinLootDistance(Player* bot)
+{
+    WorldObject* object = bot && !IsEmpty() ? GetWorldObject(bot) : nullptr;
+    if (!object || !bot->IsWithinDistInMap(object, INTERACTION_DISTANCE))
+        return false;
+
+    const float dx = bot->GetPositionX() - object->GetPositionX();
+    const float dy = bot->GetPositionY() - object->GetPositionY();
+    return dx * dx + dy * dy <= INTERACTION_DISTANCE * INTERACTION_DISTANCE;
+}
+
 bool LootObjectStack::Add(ObjectGuid guid)
 {
+    if (!guid || IsDeferred(guid))
+        return false;
+
     if (!availableLoot.insert(guid).second)
         return false;
 
@@ -365,6 +380,12 @@ void LootObjectStack::Remove(ObjectGuid guid)
 void LootObjectStack::Clear()
 {
     availableLoot.clear();
+    lootRetries.clear();
+    ObjectGuid previous = activeLoot;
+    activeLoot = ObjectGuid();
+    lootOpening = false;
+    if (previous)
+        ResetCurrentLoot(previous);
 }
 
 bool LootObjectStack::CanLoot(float maxDistance)
@@ -375,12 +396,26 @@ bool LootObjectStack::CanLoot(float maxDistance)
 
 LootObject LootObjectStack::GetLoot(float maxDistance)
 {
+    if (IsLootOpening())
+        return LootObject();
+
+    if (activeLoot && !IsDeferred(activeLoot))
+    {
+        LootObject current(bot, activeLoot);
+        WorldObject* object = current.GetWorldObject(bot);
+        if (object && current.IsLootPossible(bot) && (!maxDistance || bot->GetDistance(object) <= maxDistance))
+            return current;
+    }
+
     std::vector<LootObject> ordered = OrderByDistance(maxDistance);
     return ordered.empty() ? LootObject() : *ordered.begin();
 }
 
 std::vector<LootObject> LootObjectStack::OrderByDistance(float maxDistance)
 {
+    if (IsLootOpening())
+        return {};
+
     availableLoot.shrink(time(0) - 30);
 
     std::map<float, LootObject> sortedMap;
@@ -388,6 +423,9 @@ std::vector<LootObject> LootObjectStack::OrderByDistance(float maxDistance)
     for (LootTargetList::iterator i = safeCopy.begin(); i != safeCopy.end(); i++)
     {
         ObjectGuid guid = i->guid;
+        if (IsDeferred(guid))
+            continue;
+
         LootObject lootObject(bot, guid);
         if (!lootObject.IsLootPossible(bot))
             continue;
@@ -401,5 +439,214 @@ std::vector<LootObject> LootObjectStack::OrderByDistance(float maxDistance)
     for (std::map<float, LootObject>::iterator i = sortedMap.begin(); i != sortedMap.end(); i++)
         result.push_back(i->second);
     return result;
+}
+
+void LootObjectStack::ResetCurrentLoot(ObjectGuid guid)
+{
+    PlayerbotAI* ai = bot ? bot->GetPlayerbotAI() : nullptr;
+    AiObjectContext* context = ai ? ai->GetAiObjectContext() : nullptr;
+    if (!context || !guid)
+        return;
+
+    if (context->GetValue<LootObject>("loot target")->Get().guid == guid)
+        context->GetValue<LootObject>("loot target")->Set(LootObject());
+
+    context->GetValue<bool>("can loot")->Reset();
+    context->GetValue<bool>("has available loot")->Reset();
+    context->GetValue<bool>("should loot object", std::to_string(guid.GetRawValue()))->Reset();
+    context->GetValue<float>("distance", "loot target")->Reset();
+}
+
+void LootObjectStack::PruneLootRetries(uint32 now)
+{
+    for (auto it = lootRetries.begin(); it != lootRetries.end();)
+    {
+        if (uint32(now - it->second.started) >= it->second.duration)
+            it = lootRetries.erase(it);
+        else
+            ++it;
+    }
+}
+
+bool LootObjectStack::IsDeferred(ObjectGuid guid)
+{
+    PruneLootRetries(WorldTimer::getMSTime());
+    return lootRetries.find(guid) != lootRetries.end();
+}
+
+bool LootObjectStack::StartLoot(ObjectGuid guid)
+{
+    if (!guid || IsDeferred(guid))
+        return false;
+
+    const uint32 now = WorldTimer::getMSTime();
+    if (activeLoot == guid)
+    {
+        if (uint32(now - lootStarted) >= 15000)
+        {
+            DeferLoot(guid);
+            return false;
+        }
+        return true;
+    }
+
+    if (activeLoot)
+        CompleteLoot(activeLoot);
+
+    activeLoot = guid;
+    lootStarted = lootProgress = now;
+    lootOpening = false;
+    lootProgressX = bot->GetPositionX();
+    lootProgressY = bot->GetPositionY();
+    lootProgressZ = bot->GetPositionZ();
+    LootObject current(bot, guid);
+    WorldObject* object = current.GetWorldObject(bot);
+    lootBestDistance = object ? sServerFacade.GetDistance(bot, object) : 0.0f;
+    return true;
+}
+
+void LootObjectStack::CompleteLoot(ObjectGuid guid)
+{
+    if (!guid)
+        return;
+
+    Remove(guid);
+    lootRetries.erase(guid);
+    if (activeLoot == guid)
+    {
+        activeLoot = ObjectGuid();
+        lootOpening = false;
+    }
+    ResetCurrentLoot(guid);
+}
+
+void LootObjectStack::DeferLoot(ObjectGuid guid, uint32 delayMs)
+{
+    if (!guid)
+        return;
+
+    CompleteLoot(guid);
+    const uint32 now = WorldTimer::getMSTime();
+    PruneLootRetries(now);
+    while (lootRetries.size() >= 64)
+    {
+        auto oldest = lootRetries.begin();
+        for (auto it = lootRetries.begin(); it != lootRetries.end(); ++it)
+            if (uint32(now - it->second.started) > uint32(now - oldest->second.started))
+                oldest = it;
+        lootRetries.erase(oldest);
+    }
+    lootRetries[guid] = { now, std::min<uint32>(delayMs, 30000) };
+}
+
+void LootObjectStack::MarkLootOpened(ObjectGuid guid)
+{
+    if (!StartLoot(guid))
+        return;
+
+    if (!lootOpening)
+    {
+        lootOpening = true;
+        lootOpened = WorldTimer::getMSTime();
+    }
+}
+
+bool LootObjectStack::IsLootOpening(ObjectGuid guid)
+{
+    if (!activeLoot || (guid && guid != activeLoot) || !lootOpening)
+        return false;
+
+    PlayerbotAI* ai = bot->GetPlayerbotAI();
+    AiObjectContext* context = ai ? ai->GetAiObjectContext() : nullptr;
+    if (!context || context->GetValue<LootObject>("loot target")->Get().guid != activeLoot)
+    {
+        CompleteLoot(activeLoot);
+        return false;
+    }
+
+    const uint32 now = WorldTimer::getMSTime();
+    if (uint32(now - lootStarted) >= 15000 ||
+        (uint32(now - lootOpened) >= 5000 && !bot->IsNonMeleeSpellCasted(true)))
+    {
+        DeferLoot(activeLoot);
+        return false;
+    }
+    return true;
+}
+
+bool LootObjectStack::ShouldHoldFollow()
+{
+    if (!activeLoot)
+        return false;
+
+    PlayerbotAI* ai = bot->GetPlayerbotAI();
+    AiObjectContext* context = ai ? ai->GetAiObjectContext() : nullptr;
+    if (!context || context->GetValue<LootObject>("loot target")->Get().guid != activeLoot)
+    {
+        CompleteLoot(activeLoot);
+        return false;
+    }
+
+    const uint32 now = WorldTimer::getMSTime();
+    LootObject current(bot, activeLoot);
+    WorldObject* object = current.GetWorldObject(bot);
+    if (!context || !sServerFacade.IsAlive(bot) || bot->IsInCombat() || bot->IsBeingTeleported() ||
+        bot->IsTaxiFlying() || !object || object->GetMapId() != bot->GetMapId() ||
+        object->GetInstanceId() != bot->GetInstanceId() || !dungeon::CanLoot(ai, object) ||
+        uint32(now - lootStarted) >= 15000)
+    {
+        DeferLoot(activeLoot);
+        return false;
+    }
+
+    Unit* anchor = ai->GetUnit(context->GetValue<ObjectGuid>("follow target")->Get());
+    if (!anchor)
+        anchor = ai->GetMaster();
+    if (anchor && anchor != bot)
+    {
+        float allowedRange = sPlayerbotAIConfig.lootDistance;
+        if (bot->GetGroup() && !ai->IsGroupLeader())
+            allowedRange = ai->HasActivePlayerMaster() ? sPlayerbotAIConfig.groupMemberLootDistanceWithActiveMaster :
+                sPlayerbotAIConfig.groupMemberLootDistance;
+
+        if (anchor->GetMapId() != bot->GetMapId() || anchor->GetInstanceId() != bot->GetInstanceId() ||
+            anchor->GetTransport() != bot->GetTransport() || anchor->IsTaxiFlying() ||
+            anchor->IsFlying() != bot->IsFlying() ||
+            (anchor->IsPlayer() && static_cast<Player*>(anchor)->IsBeingTeleported()) ||
+            sServerFacade.GetDistance(bot, anchor) > sPlayerbotAIConfig.sightDistance ||
+            sServerFacade.GetDistance2d(anchor, object) > allowedRange + INTERACTION_DISTANCE)
+        {
+            DeferLoot(activeLoot);
+            return false;
+        }
+    }
+
+    if (lootOpening)
+        return IsLootOpening();
+
+    if (!current.IsLootPossible(bot))
+    {
+        DeferLoot(activeLoot);
+        return false;
+    }
+
+    const float dx = bot->GetPositionX() - lootProgressX;
+    const float dy = bot->GetPositionY() - lootProgressY;
+    const float dz = bot->GetPositionZ() - lootProgressZ;
+    const float distance = sServerFacade.GetDistance(bot, object);
+    if (dx * dx + dy * dy + dz * dz >= 0.25f || distance + 0.5f <= lootBestDistance)
+    {
+        lootProgress = now;
+        lootProgressX = bot->GetPositionX();
+        lootProgressY = bot->GetPositionY();
+        lootProgressZ = bot->GetPositionZ();
+        lootBestDistance = std::min(lootBestDistance, distance);
+    }
+    if (uint32(now - lootProgress) >= 5000)
+    {
+        DeferLoot(activeLoot);
+        return false;
+    }
+    return true;
 }
 

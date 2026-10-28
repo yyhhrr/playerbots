@@ -28,11 +28,11 @@ int main()
     Check(!HasMageAoeTargetCount(2), "two targets remain below the AOE threshold");
     Check(HasMageAoeTargetCount(3), "three targets enable AOE");
     Check(HasMageAoeTargetCount(4), "additional targets continue to enable AOE");
-    Check(!IsMageLevelingAoeAllowed(59, 2), "a leveling mage with two nearby foes cannot start the new explosion");
-    Check(IsMageLevelingAoeAllowed(59, 3), "a level fifty-nine mage with three nearby foes can start the explosion");
-    Check(!IsMageLevelingAoeAllowed(60, 3), "level sixty is excluded from the leveling explosion rule");
-    Check(!IsMageLevelingAoeAllowed(61, 3), "levels above sixty remain excluded");
-    Check(!IsMageLevelingAoeAllowed(60, 20), "more nearby foes cannot bypass the level cutoff");
+    Check(!IsMageLevelingAoeAllowed(59, 2), "the manual leveling alias still requires three nearby foes");
+    Check(IsMageLevelingAoeAllowed(59, 3), "the manual leveling alias remains available below sixty");
+    Check(!IsMageLevelingAoeAllowed(60, 3), "the old manual leveling alias remains excluded at sixty");
+    Check(!IsMageLevelingAoeAllowed(61, 3), "the old manual leveling alias retains its original level cutoff");
+    Check(!IsMageLevelingAoeAllowed(60, 20), "extra enemies cannot bypass the old manual alias level cutoff");
 
     Check(!IsMageFlamestrikeCovered(0, 0), "an empty area is not an existing pack");
     Check(!IsMageFlamestrikeCovered(0, 3), "own far-away or another mage's area does not cover this pack");
@@ -57,11 +57,11 @@ int main()
     caster = {};
     Check(IsMageBlizzardCasterReady(caster), "a caster can channel without a tank, threat margin or distance requirement");
 
-    for (const char* action : {"arcane explosion", "leveling arcane explosion", "flamestrike", "blizzard"})
+    for (const char* action : {"mage ot arcane explosion", "arcane explosion", "leveling arcane explosion", "flamestrike", "blizzard"})
         Check(IsMageAoeDamageAction(action), std::string(action) + " participates in persistent AOE output");
     for (const char* action : {"frostbolt", "fireball", "cone of cold", "healing potion"})
         Check(!IsMageAoeDamageAction(action), std::string(action) + " retains ordinary threat rules");
-    for (const char* action : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink"})
+    for (const char* action : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink", "mage pve retreat"})
         Check(IsMageAoeDisengageAction(action), std::string(action) + " cannot interrupt an available AOE opportunity");
     for (const char* action : {"healing potion", "mana potion", "mana gem", "mana shield", "ice barrier", "frost nova", "counterspell", "follow", "select new target"})
         Check(!IsMageAoeDisengageAction(action), std::string(action) + " remains available during AOE");

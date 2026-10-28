@@ -33,6 +33,21 @@ namespace ai
         Unit* GetTarget() override;
     };
 
+    class MagePveRetreatTrigger : public Trigger
+    {
+    public:
+        MagePveRetreatTrigger(PlayerbotAI* ai) : Trigger(ai, "mage pve retreat") {}
+        bool IsActive() override;
+    };
+
+    class MageOtArcaneExplosionTrigger : public Trigger
+    {
+    public:
+        MageOtArcaneExplosionTrigger(PlayerbotAI* ai) : Trigger(ai, "mage ot arcane explosion") {}
+        bool IsActive() override { return GetTarget() != nullptr; }
+        Unit* GetTarget() override;
+    };
+
     class MageGroundAoeTrigger : public Trigger
     {
     public:

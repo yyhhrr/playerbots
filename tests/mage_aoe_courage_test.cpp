@@ -7,13 +7,16 @@
 #include <list>
 #include <map>
 #include <string>
+#include <utility>
+#include <vector>
 
 using uint8 = std::uint8_t;
 using uint32 = std::uint32_t;
 constexpr uint32 CLASS_MAGE = 8;
 constexpr uint32 UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL = 1;
 constexpr uint32 POWER_MANA = 0;
-enum class BotState { BOT_STATE_COMBAT, BOT_STATE_REACTION };
+constexpr uint32 SPELL_AURA_MOD_ROOT = 2, SPELL_AURA_MOD_STUN = 3;
+enum class BotState { BOT_STATE_COMBAT, BOT_STATE_REACTION, BOT_STATE_NON_COMBAT, BOT_STATE_DEAD };
 enum class ActionThreatType { ACTION_THREAT_NONE, ACTION_THREAT_SINGLE, ACTION_THREAT_AOE, ACTION_THREAT_LOW };
 enum CurrentSpellTypes { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL };
 enum SpellState { SPELL_STATE_CASTING, SPELL_STATE_CHANNELING, SPELL_STATE_FINISHED };
@@ -80,7 +83,7 @@ struct Player
 {
     uint8 playerClass = CLASS_MAGE;
     bool uncontrolled = false, falling = false;
-    bool globalCooldown = false;
+    bool globalCooldown = false, rooted = false, stunned = false;
     uint32 mana = 100;
     std::array<Spell*, 2> currentSpells{};
     uint8 getClass() const { return playerClass; }
@@ -89,6 +92,7 @@ struct Player
     Spell* GetCurrentSpell(CurrentSpellTypes slot) const { return currentSpells[slot]; }
     bool HasGCD(const SpellEntry*) const { return globalCooldown; }
     uint32 GetPower(uint32) const { return mana; }
+    bool HasAuraType(uint32 type) const { return type == SPELL_AURA_MOD_ROOT ? rooted : stunned; }
     Session* GetSession() { return &session; }
     uint32 GetObjectGuid() const { return 1; }
     Session session;
@@ -114,7 +118,8 @@ struct PlayerbotAI
     Player bot;
     AiObjectContext context;
     bool grouped = true, highThreat = true, areaDebuff = false, aoeEnabled = true, jumping = false;
-    bool groundAoeSafe = true, pvp = false;
+    bool groundAoeSafe = true, pvp = false, closeThreat = false;
+    std::vector<std::pair<std::string, BotState>> strategyChanges;
     Position checkedArea;
     uint8 aoeThreat = 100;
     Player* GetBot() { return &bot; }
@@ -123,6 +128,7 @@ struct PlayerbotAI
     bool IsJumping() const { return jumping; }
     bool IsInPvp() const { return pvp; }
     bool HasStrategy(const std::string& name, BotState) const { return name == "aoe" && aoeEnabled; }
+    void ChangeStrategy(const std::string& name, BotState state) { strategyChanges.emplace_back(name, state); }
     template<class T> T Value(const std::string& name, const std::string& qualifier = "") const
     {
         if (name == "group") return T(grouped);
@@ -160,15 +166,26 @@ struct MageAoeCommitMultiplier : Multiplier
 struct AoeStrategy
 {
     PlayerbotAI* ai;
+    std::string name = "aoe arcane pve";
     explicit AoeStrategy(PlayerbotAI* ai) : ai(ai) {}
-    std::string getName() const { return "aoe arcane pve"; }
+    std::string getName() const { return name; }
     void InitCombatMultipliers(std::list<Multiplier*>&) {}
+    void InitReactionMultipliers(std::list<Multiplier*>&) {}
 };
 struct MageAoeStrategy : AoeStrategy
 {
     using AoeStrategy::AoeStrategy;
     void InitCombatMultipliers(std::list<Multiplier*>&);
+    void InitReactionMultipliers(std::list<Multiplier*>&);
+    void OnStrategyAdded(BotState);
+    void OnStrategyRemoved(BotState);
 };
+struct Unit {};
+Unit* FindMagePveRetreatTarget(PlayerbotAI* ai)
+{
+    static Unit target;
+    return ai->closeThreat ? &target : nullptr;
+}
 struct MageAoeTarget {};
 bool IsMageAoeAreaSafe(PlayerbotAI* ai, uint32, float x, float y, float z)
 {
@@ -203,7 +220,7 @@ int main()
 {
     PlayerbotAI ai;
     ThreatMultiplier threat(&ai);
-    for (const char* name : {"arcane explosion", "leveling arcane explosion", "flamestrike", "blizzard"})
+    for (const char* name : {"mage ot arcane explosion", "arcane explosion", "leveling arcane explosion", "flamestrike", "blizzard"})
     {
         Action action{name, ActionThreatType::ACTION_THREAT_AOE};
         Check(threat.GetValue(&action) == 1.0f, std::string(name) + " remains active at maximum AOE and current-target threat");
@@ -218,9 +235,9 @@ int main()
     Check(threat.GetValue(nullptr) == 1.0f, "a missing action remains harmless");
 
     MageAoeCommitMultiplier courage(&ai);
-    Action aoe{"leveling arcane explosion"};
+    Action aoe{"mage ot arcane explosion"};
     ai.context.actions[aoe.name] = &aoe;
-    for (const char* name : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink"})
+    for (const char* name : {"flee", "runaway", "flee with pet", "invisibility", "lesser invisibility", "ice block", "shoot", "evocation", "blink", "mage pve retreat"})
     {
         Action action{name};
         Check(courage.GetValue(&action) == 0.0f, std::string(name) + " cannot displace a usable AOE pack");
@@ -233,7 +250,7 @@ int main()
             std::string(name) + " remains available in PvP even while a usable AOE pack is present");
     }
     ai.pvp = false;
-    for (const char* name : {"mana potion", "mana gem", "healing potion", "ice barrier", "mana shield", "frost nova", "counterspell", "follow", "attack", "select new target"})
+    for (const char* name : {"mana potion", "mana gem", "healing potion", "ice barrier", "mana shield", "frost nova", "counterspell", "polymorph", "follow", "attack", "select new target"})
     {
         Action action{name};
         Check(courage.GetValue(&action) == 1.0f, std::string(name) + " keeps its normal behavior during AOE");
@@ -251,7 +268,7 @@ int main()
     Action runaway{"runaway"};
     Check(courage.GetValue(&runaway) == 1.0f, "a damaging ground effect also preserves runaway");
     ai.areaDebuff = false;
-    for (const char* name : {"arcane explosion", "flamestrike", "blizzard"})
+    for (const char* name : {"mage ot arcane explosion", "flamestrike", "blizzard"})
     {
         ai.context.actions.clear();
         Action alternative{name};
@@ -267,9 +284,9 @@ int main()
     Check(fire.GetValue(&flee) == 1.0f, "a fire mage cannot be held in place by an unscheduled legacy Arcane Explosion");
     Check(frost.GetValue(&flee) == 1.0f, "a frost mage cannot be held in place by an unscheduled legacy Arcane Explosion");
     ai.context.triggers["mage arcane explosion aoe"].active = false;
-    Check(courage.GetValue(&flee) == 1.0f, "the legacy explosion must also satisfy the arcane strategy's trigger");
+    Check(courage.GetValue(&flee) == 1.0f, "the legacy explosion cannot override the dedicated OT decision");
     ai.context.triggers["mage arcane explosion aoe"].active = true;
-    Check(courage.GetValue(&flee) == 0.0f, "an active legacy arcane trigger maintains output");
+    Check(courage.GetValue(&flee) == 1.0f, "an active legacy arcane trigger still cannot force stationary output");
     ai.context.actions.clear();
     Action flamestrike{"flamestrike"};
     ai.context.actions[flamestrike.name] = &flamestrike;
@@ -286,6 +303,30 @@ int main()
     mageAoe.InitCombatMultipliers(multipliers);
     Check(multipliers.size() == 1 && dynamic_cast<MageAoeCommitMultiplier*>(multipliers.front()),
         "the mage AOE strategy installs its own commitment multiplier");
+    for (Multiplier* multiplier : multipliers) delete multiplier;
+    for (const char* variant : {"aoe arcane pve", "aoe fire pve", "aoe frost pve", "aoe frost raid"})
+    {
+        mageAoe.name = variant;
+        ai.strategyChanges.clear();
+        mageAoe.OnStrategyAdded(BotState::BOT_STATE_COMBAT);
+        Check(ai.strategyChanges.size() == 1 && ai.strategyChanges[0] ==
+            std::make_pair("+" + std::string(variant), BotState::BOT_STATE_REACTION),
+            "adding combat AOE mirrors the exact specialization into reaction");
+        mageAoe.OnStrategyRemoved(BotState::BOT_STATE_COMBAT);
+        Check(ai.strategyChanges.size() == 2 && ai.strategyChanges[1] ==
+            std::make_pair("-" + std::string(variant), BotState::BOT_STATE_REACTION),
+            "removing combat AOE also removes its reaction commitment");
+        for (BotState state : {BotState::BOT_STATE_REACTION, BotState::BOT_STATE_NON_COMBAT, BotState::BOT_STATE_DEAD})
+        {
+            mageAoe.OnStrategyAdded(state);
+            mageAoe.OnStrategyRemoved(state);
+        }
+        Check(ai.strategyChanges.size() == 2, "mirroring does not recurse or change other strategy states");
+    }
+    multipliers.clear();
+    mageAoe.InitReactionMultipliers(multipliers);
+    Check(multipliers.size() == 1 && dynamic_cast<MageAoeCommitMultiplier*>(multipliers.front()),
+        "reaction movement also respects legal close-range AOE commitment");
     for (Multiplier* multiplier : multipliers) delete multiplier;
 
     ai.context.actions.clear();
@@ -314,7 +355,51 @@ int main()
     Check(courage.GetValue(&flee) == 1.0f, "an unrelated single-target cast does not invoke AOE commitment");
     ai.bot.currentSpells[CURRENT_GENERIC_SPELL] = nullptr;
 
-    CastSpellAction waitingExplosion{"leveling arcane explosion", 1449};
+    // A distant ground pack must never immobilize a mage against a close add.
+    ai.closeThreat = true;
+    ai.bot.currentSpells[CURRENT_CHANNELED_SPELL] = &channel;
+    channel.state = SPELL_STATE_CHANNELING;
+    for (const char* name : {"flee", "runaway", "blink", "ice block", "mage pve retreat"})
+    {
+        Action escape{name};
+        Check(courage.GetValue(&escape) == 1.0f,
+            std::string(name) + " stays available when a nearby enemy interrupts a distant Blizzard pack");
+    }
+    ai.bot.currentSpells[CURRENT_CHANNELED_SPELL] = nullptr;
+    cast.m_spellInfo = &currentFlamestrike;
+    ai.bot.currentSpells[CURRENT_GENERIC_SPELL] = &cast;
+    Check(courage.GetValue(&flee) == 1.0f, "a close threat permits movement during a Flamestrike cast");
+    ai.bot.currentSpells[CURRENT_GENERIC_SPELL] = nullptr;
+    for (const char* name : {"flamestrike", "blizzard"})
+    {
+        Action remoteAoe{name};
+        ai.context.actions[name] = &remoteAoe;
+        Check(courage.GetValue(&flee) == 1.0f,
+            std::string(name) + " readiness cannot override space needed against one or two close enemies");
+        ai.context.actions.clear();
+    }
+    Action closeExplosion{"mage ot arcane explosion"};
+    ai.context.actions[closeExplosion.name] = &closeExplosion;
+    Check(courage.GetValue(&flee) == 0.0f, "a genuinely usable OT explosion preserves its three-target commitment");
+    Check(fire.GetValue(&flee) == 0.0f && frost.GetValue(&flee) == 0.0f,
+        "all three specializations hold position for a real, castable OT explosion");
+    Action dedicatedRetreat{"mage pve retreat"};
+    Check(courage.GetValue(&dedicatedRetreat) == 0.0f, "the dedicated retreat cannot displace a legal close explosion");
+    closeExplosion.useful = false;
+    Check(courage.GetValue(&dedicatedRetreat) == 1.0f, "fewer than three or protected close targets release the retreat action");
+    closeExplosion.useful = true; closeExplosion.possible = false;
+    Check(courage.GetValue(&flee) == 1.0f, "a close explosion that cannot be cast does not hold the mage in melee");
+    closeExplosion.possible = true;
+    Action closeBlink{"blink"};
+    ai.bot.rooted = true;
+    Check(courage.GetValue(&closeBlink) == 1.0f, "a rooted PvE mage retains Blink even when close AOE is ready");
+    ai.bot.rooted = false; ai.bot.stunned = true;
+    Check(courage.GetValue(&closeBlink) == 1.0f, "a stunned PvE mage retains Blink even when close AOE is ready");
+    ai.bot.stunned = false;
+    ai.context.actions.clear();
+    ai.closeThreat = false;
+
+    CastSpellAction waitingExplosion{"mage ot arcane explosion", 1449};
     waitingExplosion.possible = false;
     ai.context.actions[waitingExplosion.name] = &waitingExplosion;
     sServerFacade.spells[1449] = {1449, 100};

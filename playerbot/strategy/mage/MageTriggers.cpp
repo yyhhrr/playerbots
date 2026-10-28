@@ -13,8 +13,8 @@ bool MagePvpRetreatTrigger::IsActive()
 
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "current target"));
     // A rooted melee opponent is the opportunity to create casting space.
-    // Do not inherit the generic follow/guard or run-speed vetoes here, and
-    // leave PvE's intentional stand-and-AOE behavior untouched.
+    // Do not inherit the generic follow/guard or run-speed vetoes here.
+    // PvE spacing and local-aggro AOE use their own triggers.
     return target && target->IsPlayer() && target->IsAlive() && ai->IsSafe(target) &&
         sServerFacade.IsHostileTo(bot, target) && bot->IsWithinLOSInMap(target) &&
         target->HasAuraType(SPELL_AURA_MOD_ROOT) &&
@@ -24,6 +24,16 @@ bool MagePvpRetreatTrigger::IsActive()
 Unit* LevelingArcaneExplosionTrigger::GetTarget()
 {
     return FindMageArcaneExplosionTarget(ai, true);
+}
+
+bool MagePveRetreatTrigger::IsActive()
+{
+    return FindMagePveRetreatTarget(ai) != nullptr;
+}
+
+Unit* MageOtArcaneExplosionTrigger::GetTarget()
+{
+    return FindMageArcaneExplosionTarget(ai);
 }
 
 bool MageGroundAoeTrigger::IsActive()

@@ -3474,7 +3474,17 @@ bool RunAwayAction::Execute(Event& event)
 bool MoveToLootAction::Execute(Event& event)
 {
     LootObject loot = AI_VALUE(LootObject, "loot target");
-    if (!loot.IsLootPossible(bot))
+    if (loot.IsEmpty())
+        return false;
+
+    LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+    if (lootStack->IsLootOpening(loot.guid))
+    {
+        SetDuration(100);
+        return true;
+    }
+
+    if (lootStack->IsDeferred(loot.guid) || !loot.IsLootPossible(bot))
     {
         if (ai->HasStrategy("debug loot", BotState::BOT_STATE_NON_COMBAT))
         {
@@ -3490,7 +3500,16 @@ bool MoveToLootAction::Execute(Event& event)
             }
         }
 
+        lootStack->DeferLoot(loot.guid);
         return false;
+    }
+
+    if (!lootStack->StartLoot(loot.guid))
+        return false;
+    if (loot.IsWithinLootDistance(bot))
+    {
+        SetDuration(100);
+        return true;
     }
 
     WorldObject *wo = loot.GetWorldObject(bot);
@@ -3505,11 +3524,17 @@ bool MoveToLootAction::Execute(Event& event)
     if (sServerFacade.IsWithinLOSInMap(bot, wo))
     {
         bool move = MoveNear(wo, sPlayerbotAIConfig.contactDistance);
-        WaitForReach(bot->GetDistance(wo));
+        if (move)
+            WaitForReach(bot->GetDistance(wo));
+        else
+            lootStack->DeferLoot(loot.guid);
         return move;
     }
 
-    return MoveTo(WorldPosition(wo));
+    bool moved = MoveTo(WorldPosition(wo));
+    if (!moved)
+        lootStack->DeferLoot(loot.guid);
+    return moved;
 }
 
 bool MoveOutOfEnemyContactAction::Execute(Event& event)

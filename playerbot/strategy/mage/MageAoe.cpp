@@ -2,6 +2,7 @@
 #include "MageAoe.h"
 #include "MageAoeGeometry.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "Grids/GridNotifiers.h"
 #include "Grids/GridNotifiersImpl.h"
 #include "Grids/CellImpl.h"
@@ -99,6 +100,53 @@ namespace
         // keep recasting on the same burning group. Other casters do not count.
         return IsMageFlamestrikeCovered(covered, targets.size());
     }
+}
+
+Unit* ai::FindMagePveRetreatTarget(PlayerbotAI* ai)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!bot || bot->getClass() != CLASS_MAGE || !bot->IsAlive() || !bot->IsInWorld() ||
+        bot->IsBeingTeleported() || ai->IsRealPlayer() || ai->IsInPvp() || !ai->CanMove() ||
+        !sPlayerbotAIConfig.fleeingEnabled ||
+        ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) || ai->GetRange("flee") <= ATTACK_DISTANCE)
+        return nullptr;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    if (!context)
+        return nullptr;
+
+    Unit* closest = nullptr;
+    float closestDistanceSquared = 12.0f * 12.0f;
+    std::set<ObjectGuid> seen;
+    auto consider = [&](ObjectGuid guid)
+    {
+        if (!guid || !seen.insert(guid).second)
+            return;
+        Unit* target = ai->GetUnit(guid);
+        if (!target || target == bot || !target->IsCreature() || !target->IsAlive() ||
+            !target->IsInWorld() || !ai->IsSafe(target) || target->GetMapId() != bot->GetMapId() ||
+            target->GetInstanceId() != bot->GetInstanceId() ||
+            !sServerFacade.IsHostileTo(bot, target) || target->HasBreakableByDamageCrowdControlAura() ||
+            !PossibleTargetsValue::CanPerceive(target, bot) || !bot->IsWithinLOSInMap(target))
+            return;
+
+        const float dx = target->GetPositionX() - bot->GetPositionX();
+        const float dy = target->GetPositionY() - bot->GetPositionY();
+        const float dz = target->GetPositionZ() - bot->GetPositionZ();
+        const float distanceSquared = dx * dx + dy * dy + dz * dz;
+        if (!(distanceSquared < closestDistanceSquared))
+            return;
+        closestDistanceSquared = distanceSquared;
+        closest = target;
+    };
+
+    // Follow/guard formation and the generic 65% run-speed veto must not prevent
+    // creating space, especially after Frost Nova. Roots are deliberately allowed.
+    consider(context->GetValue<ObjectGuid>("closest attacker targeting me")->Get());
+    consider(context->GetValue<ObjectGuid>("current target")->Get());
+    for (ObjectGuid guid : context->GetValue<std::list<ObjectGuid>>("attackers targeting me")->Get())
+        consider(guid);
+    return closest;
 }
 
 bool ai::FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& result,
@@ -288,7 +336,9 @@ Unit* ai::FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly)
     std::set<ObjectGuid> seen;
     Unit* spellTarget = nullptr;
     size_t count = 0;
-    // Combat against the group counts too; Frost Nova roots must not hide the pack.
+    bool hasAggro = false;
+    // Combat against the group counts too, but at least one nearby foe must
+    // actually target the mage. Frost Nova roots must not hide the pack.
     const std::list<ObjectGuid> attackers = context->GetValue<std::list<ObjectGuid>>("attackers")->Get();
     for (const ObjectGuid& guid : attackers)
     {
@@ -317,8 +367,9 @@ Unit* ai::FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly)
         if (!spellTarget)
             spellTarget = target;
         ++count;
+        hasAggro = hasAggro || target->GetVictim() == bot;
     }
-    if (!(levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), count) : HasMageAoeTargetCount(count)))
+    if (!hasAggro || !(levelingOnly ? IsMageLevelingAoeAllowed(bot->GetLevel(), count) : HasMageAoeTargetCount(count)))
         return nullptr;
 
     // Check every live unit in the blast, including sheep outside combat lists.

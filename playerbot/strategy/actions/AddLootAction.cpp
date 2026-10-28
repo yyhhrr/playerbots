@@ -116,21 +116,11 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
     Group* group = bot->GetGroup();
 
     bool isInGroup = group ? true : false;
-    bool isInDungeon = bot->GetMap()->IsDungeon();
 
     if (isInGroup)
     {
-        //if is not master looter (and loot is set to MASTER_LOOT)
-        //NOTE: They are !unable to loot quests items! too if so
-        if (isInDungeon
-            && group->GetLootMethod() == LootMethod::MASTER_LOOT
-            && group->GetMasterLooterGuid()
-            && group->GetMasterLooterGuid() != bot->GetObjectGuid())
-        {
-            ai->TellDebug(requester, "Not master looter.", "debug loot");
-            return false;
-        }
-
+        // Master loot still permits gold and eligible personal/under-threshold items.
+        // Loot::CanLoot and StoreLootAction retain the native distribution permissions.
         if (ai->IsGroupLeader())
         {
             lootDistanceToUse = sPlayerbotAIConfig.lootDistance;

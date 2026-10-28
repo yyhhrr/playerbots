@@ -141,8 +141,8 @@ void FireMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "fire spells locked",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH), NULL)));
+        "mage blizzard aoe",
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 }
 
 void FireMageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -503,8 +503,8 @@ void FireMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "fire spells locked",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH), NULL)));
+        "mage blizzard aoe",
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 }
 
 void FireMageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -881,8 +881,8 @@ void FireMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "fire spells locked",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH), NULL)));
+        "mage blizzard aoe",
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 }
 
 void FireMageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

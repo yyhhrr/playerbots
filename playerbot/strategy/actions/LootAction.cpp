@@ -16,20 +16,31 @@ using namespace ai;
 
 bool LootAction::Execute(Event& event)
 {
+    LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+    LootObject prevLoot = AI_VALUE(LootObject, "loot target");
+    if (!prevLoot.IsEmpty() && lootStack->IsLootOpening(prevLoot.guid))
+        return false;
+
     if (!AI_VALUE(bool, "has available loot"))
         return false;
 
-    LootObject prevLoot = AI_VALUE(LootObject, "loot target");
-    LootObject const& lootObject = AI_VALUE(LootObjectStack*, "available loot")->GetLoot(sPlayerbotAIConfig.lootDistance);
+    LootObject lootObject = lootStack->GetLoot(sPlayerbotAIConfig.lootDistance);
+    if (lootObject.IsEmpty())
+        return false;
 
     if (!prevLoot.IsEmpty() && prevLoot.guid != lootObject.guid)
     {
         WorldPacket packet(CMSG_LOOT_RELEASE, 8);
         packet << prevLoot.guid;
         bot->GetSession()->HandleLootReleaseOpcode(packet);
+        lootStack->CompleteLoot(prevLoot.guid);
     }
 
+    if (!lootStack->StartLoot(lootObject.guid))
+        return false;
     context->GetValue<LootObject>("loot target")->Set(lootObject);
+    RESET_AI_VALUE(bool, "can loot");
+    RESET_AI_VALUE(bool, "has available loot");
     return true;
 }
 
@@ -53,25 +64,46 @@ enum ProfessionSpells
 bool OpenLootAction::Execute(Event& event)
 {
     LootObject lootObject = AI_VALUE(LootObject, "loot target");
+    if (lootObject.IsEmpty())
+        return false;
+
+    LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+    if (lootStack->IsLootOpening(lootObject.guid))
+    {
+        SetDuration(100);
+        return true;
+    }
+
+    if (lootStack->IsDeferred(lootObject.guid) || !lootObject.IsLootPossible(bot))
+    {
+        lootStack->DeferLoot(lootObject.guid);
+        return false;
+    }
+
+    // A move may still be in progress when a manual action chain reaches this step.
+    if (!lootObject.IsWithinLootDistance(bot))
+        return false;
+    if (!lootStack->StartLoot(lootObject.guid))
+        return false;
+
     bool result = DoLoot(lootObject);
     if (result)
-    {
-        AI_VALUE(LootObjectStack*, "available loot")->Remove(lootObject.guid);
-        context->GetValue<LootObject>("loot target")->Set(LootObject());
-    }
+        lootStack->MarkLootOpened(lootObject.guid);
+    else
+        lootStack->DeferLoot(lootObject.guid);
+    RESET_AI_VALUE(bool, "can loot");
+    RESET_AI_VALUE(bool, "has available loot");
     return result;
 }
 
 bool OpenLootAction::DoLoot(LootObject& lootObject)
 {
-    if (lootObject.IsEmpty())
+    if (lootObject.IsEmpty() || !lootObject.IsWithinLootDistance(bot))
         return false;
 
     Creature* creature = ai->GetCreature(lootObject.guid);
-    if (creature && sServerFacade.GetDistance2d(bot, creature) > INTERACTION_DISTANCE)
-        return false;
-
-    if (creature && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE) && !creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE))
+    // Ordinary loot must be collected before attempting profession extraction.
+    if (creature && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
     {
         if (!lootObject.IsLootPossible(bot)) //Clear loot if bot can't loot it.
             return true;
@@ -112,8 +144,6 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
     }
 
     GameObject* go = ai->GetGameObject(lootObject.guid);
-    if (go && sServerFacade.GetDistance2d(bot, go) > INTERACTION_DISTANCE)
-        return false;
 
     if (go && (go->IsInUse() || go->GetGoState() == GO_STATE_ACTIVE))
         return false;
@@ -270,17 +300,29 @@ bool StoreLootAction::Execute(Event& event)
         p >> items;     // 1 number of items on corpse
     }
 
-    bot->SetLootGuid(guid);
+    // Native opening sets this before sending the response. A delayed old response
+    // must not replace the native loot target of a newer request.
+    if (!guid || bot->GetLootGuid() != guid)
+    {
+        AI_VALUE(LootObjectStack*, "available loot")->DeferLoot(guid);
+        return false;
+    }
 
     Loot* loot = sLootMgr.GetLoot(bot);
 
     if (!loot)
+    {
+        AI_VALUE(LootObjectStack*, "available loot")->DeferLoot(guid);
         return false;
+    }
 
+    bool lootedSomething = false;
     if (gold > 0)
     {
+        const uint32 moneyBefore = bot->GetMoney();
         WorldPacket packet(CMSG_LOOT_MONEY, 0);
         bot->GetSession()->HandleLootMoneyOpcode(packet);
+        lootedSomething = bot->GetMoney() > moneyBefore;
     }
 
     for (uint8 i = 0; i < items; ++i)
@@ -324,9 +366,23 @@ bool StoreLootAction::Execute(Event& event)
         if (!lootItem)
             continue;
 
-        //have no right to loot
-        if (lootItem->isBlocked || lootItem->GetSlotTypeForSharedLoot(bot, loot) == MAX_LOOT_SLOT_TYPE)
+        // Packet slot information may be stale: recheck the actual current permissions.
+        LootSlotType currentSlot = lootItem->GetSlotTypeForSharedLoot(bot, loot);
+        if (lootItem->isBlocked || !lootItem->IsAllowed(bot, loot) ||
+            (currentSlot != LOOT_SLOT_NORMAL
+#ifndef MANGOSBOT_ZERO
+                && currentSlot != LOOT_SLOT_OWNER
+#endif
+            ))
             continue;
+
+        const uint32 countBefore = bot->GetItemCount(itemid, false);
+        WorldPacket packet(CMSG_AUTOSTORE_LOOT_ITEM, 1);
+        packet << itemindex;
+        bot->GetSession()->HandleAutostoreLootItemOpcode(packet);
+        if (bot->GetItemCount(itemid, false) <= countBefore)
+            continue;
+        lootedSomething = true;
 
         Player* master = ai->GetMaster();
         if (sRandomPlayerbotMgr.IsRandomBot(bot) && master)
@@ -335,10 +391,6 @@ bool StoreLootAction::Execute(Event& event)
             if (price)
                 sRandomPlayerbotMgr.AddTradeDiscount(bot, master, price);
         }
-
-        WorldPacket packet(CMSG_AUTOSTORE_LOOT_ITEM, 1);
-        packet << itemindex;
-        bot->GetSession()->HandleAutostoreLootItemOpcode(packet);
 
         if (proto->Quality > ITEM_QUALITY_NORMAL && !urand(0, 50) && ai->HasStrategy("emote", BotState::BOT_STATE_NON_COMBAT)) ai->PlayEmote(TEXTEMOTE_CHEER);
         if (proto->Quality >= ITEM_QUALITY_RARE && !urand(0, 1) && ai->HasStrategy("emote", BotState::BOT_STATE_NON_COMBAT)) ai->PlayEmote(TEXTEMOTE_CHEER);
@@ -355,8 +407,10 @@ bool StoreLootAction::Execute(Event& event)
         BroadcastHelper::BroadcastLootingItem(ai, bot, proto, itemQualifier);
     }
 
-    AI_VALUE(LootObjectStack*, "available loot")->Remove(guid);
-    RESET_AI_VALUE(LootObject, "loot target");
+    if (lootedSomething)
+        AI_VALUE(LootObjectStack*, "available loot")->CompleteLoot(guid);
+    else
+        AI_VALUE(LootObjectStack*, "available loot")->DeferLoot(guid);
     RESET_AI_VALUE2(bool, "should loot object", std::to_string(guid.GetRawValue()));
 
     // release loot

@@ -9,6 +9,19 @@ namespace ai
 {
     struct MageAoeTarget;
 
+    class MagePveRetreatAction : public MovementAction
+    {
+    public:
+        MagePveRetreatAction(PlayerbotAI* ai) : MovementAction(ai, "mage pve retreat") {}
+        bool isUseful() override;
+        bool Execute(Event& event) override;
+        bool ShouldReactionInterruptMovement() const override { return false; }
+
+    private:
+        bool retreatFailed = false;
+        uint32 retreatFailedAt = 0;
+    };
+
     BUFF_ACTION(CastFireWardAction, "fire ward");
     BUFF_ACTION(CastFrostWardAction, "frost ward");
     BUFF_ACTION(CastBlinkAction, "blink");
@@ -379,6 +392,21 @@ namespace ai
         {
             return bot->GetLevel() < 60 && CastArcaneExplosionAction::Execute(event);
         }
+    };
+
+    class CastMageOtArcaneExplosionAction : public CastArcaneExplosionAction
+    {
+    public:
+        CastMageOtArcaneExplosionAction(PlayerbotAI* ai) : CastArcaneExplosionAction(ai) {}
+        std::string getName() override { return "mage ot arcane explosion"; }
+        // Execute rechecks the OT pack and cast eligibility before interrupting.
+        bool ShouldReactionInterruptCast() const override { return false; }
+        bool isUseful() override;
+        bool isPossible() override;
+        bool Execute(Event& event) override;
+
+    private:
+        bool CanReplaceCurrentCast(bool& replacingGroundAoe) const;
     };
 
     class CastConeOfColdAction : public CastMeleeAoeSpellAction

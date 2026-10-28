@@ -70,6 +70,10 @@ tests
 /tests/*
 !/tests/guild_bot_login_test.cpp
 !/tests/clear_bags_runtime_test.cpp
+!/tests/loot_master_runtime_test.cpp
+!/tests/loot_task_runtime_test.cpp
+!/tests/loot_permissions_runtime_test.cpp
+!/tests/loot_flow_runtime_test.cpp
 !/tests/arathi_basin_policy_test.cpp
 !/tests/arathi_basin_combat_test.cpp
 !/tests/arathi_capture_policy_test.cpp
@@ -93,6 +97,7 @@ tests
 !/tests/mage_arcane_explosion_test.cpp
 !/tests/mage_aoe_courage_test.cpp
 !/tests/mage_pvp_retreat_test.cpp
+!/tests/mage_spacing_runtime_test.cpp
 !/tests/enchanting_policy_test.cpp
 !/tests/enchanting_exchange_test.cpp
 !/tests/enchanting_runtime_test.cpp

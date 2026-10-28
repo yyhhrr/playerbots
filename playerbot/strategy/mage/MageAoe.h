@@ -22,6 +22,9 @@ namespace ai
     // Check an existing cast's fixed damage area without requiring another pack.
     bool IsMageAoeAreaSafe(PlayerbotAI* ai, uint32 spellId, float x, float y, float z);
 
-    // Recheck the caster-centred explosion, including nearby crowd control.
+    // Recheck a caster-centred explosion: three valid foes, local aggro and safe crowd control.
     Unit* FindMageArcaneExplosionTarget(PlayerbotAI* ai, bool levelingOnly = false);
+
+    // Find the closest visible PvE opponent that is inside the mage's casting space.
+    Unit* FindMagePveRetreatTarget(PlayerbotAI* ai);
 }

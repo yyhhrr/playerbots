@@ -110,7 +110,7 @@ void FrostMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "mage blizzard aoe",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "frost spells locked",
@@ -460,7 +460,7 @@ void FrostMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "mage blizzard aoe",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "frost spells locked",
@@ -834,7 +834,7 @@ void FrostMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "mage blizzard aoe",
-        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "frost spells locked",

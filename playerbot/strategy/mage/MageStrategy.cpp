@@ -67,10 +67,36 @@ MageStrategy::MageStrategy(PlayerbotAI* ai) : ClassStrategy(ai)
     actionNodeFactories.Add(std::make_unique<MageStrategyActionNodeFactory>());
 }
 
+void MageAoeStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
+{
+    AoeStrategy::InitReactionTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "mage ot arcane explosion",
+        NextAction::array(0, new NextAction("mage ot arcane explosion", ACTION_HIGH + 5), NULL)));
+}
+
 void MageAoeStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
 {
     AoeStrategy::InitCombatMultipliers(multipliers);
     multipliers.push_back(new MageAoeCommitMultiplier(ai, getName()));
+}
+
+void MageAoeStrategy::InitReactionMultipliers(std::list<Multiplier*>& multipliers)
+{
+    AoeStrategy::InitReactionMultipliers(multipliers);
+    multipliers.push_back(new MageAoeCommitMultiplier(ai, getName()));
+}
+
+void MageAoeStrategy::OnStrategyAdded(BotState state)
+{
+    if (state == BotState::BOT_STATE_COMBAT)
+        ai->ChangeStrategy("+" + getName(), BotState::BOT_STATE_REACTION);
+}
+
+void MageAoeStrategy::OnStrategyRemoved(BotState state)
+{
+    if (state == BotState::BOT_STATE_COMBAT)
+        ai->ChangeStrategy("-" + getName(), BotState::BOT_STATE_REACTION);
 }
 
 #ifdef MANGOSBOT_ZERO // Vanilla
@@ -78,6 +104,10 @@ void MageAoeStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
 void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "critical health",
@@ -132,6 +162,10 @@ void MageStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 void MageStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitReactionTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
 }
 
 void MageStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
@@ -224,8 +258,8 @@ void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     AoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "leveling arcane explosion",
-        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
+        "mage ot arcane explosion",
+        NextAction::array(0, new NextAction("mage ot arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -519,6 +553,10 @@ void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "critical health",
         NextAction::array(0, new NextAction("ice block", ACTION_EMERGENCY + 1), NULL)));
 
@@ -567,6 +605,10 @@ void MageStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 void MageStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitReactionTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
 }
 
 void MageStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
@@ -659,8 +701,8 @@ void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     AoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "leveling arcane explosion",
-        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
+        "mage ot arcane explosion",
+        NextAction::array(0, new NextAction("mage ot arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -942,6 +984,10 @@ void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "critical health",
         NextAction::array(0, new NextAction("ice block", ACTION_EMERGENCY + 1), NULL)));
 
@@ -990,6 +1036,10 @@ void MageStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 void MageStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitReactionTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "mage pve retreat",
+        NextAction::array(0, new NextAction("mage pve retreat", ACTION_MOVE + 1), NULL)));
 }
 
 void MageStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
@@ -1082,8 +1132,8 @@ void MageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     AoeStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "leveling arcane explosion",
-        NextAction::array(0, new NextAction("leveling arcane explosion", ACTION_HIGH + 5), NULL)));
+        "mage ot arcane explosion",
+        NextAction::array(0, new NextAction("mage ot arcane explosion", ACTION_HIGH + 5), NULL)));
 }
 
 void MageAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -15,6 +15,7 @@ namespace ai
     public:
         bool IsEmpty() { return !guid; }
         bool IsLootPossible(Player* bot);
+        bool IsWithinLootDistance(Player* bot);
         void Refresh(Player* bot, ObjectGuid guid, bool debug = false);
         WorldObject* GetWorldObject(Player* bot);
         ObjectGuid guid;
@@ -56,13 +57,37 @@ namespace ai
         void Clear();
         bool CanLoot(float maxDistance);
         LootObject GetLoot(float maxDistance = 0);
+        bool StartLoot(ObjectGuid guid);
+        void CompleteLoot(ObjectGuid guid);
+        void DeferLoot(ObjectGuid guid, uint32 delayMs = 5000);
+        bool IsDeferred(ObjectGuid guid);
+        void MarkLootOpened(ObjectGuid guid);
+        bool IsLootOpening(ObjectGuid guid = ObjectGuid());
+        bool ShouldHoldFollow();
 
     private:
         std::vector<LootObject> OrderByDistance(float maxDistance = 0);
+        void ResetCurrentLoot(ObjectGuid guid);
+        void PruneLootRetries(uint32 now);
 
     private:
         Player* bot;
         LootTargetList availableLoot;
+        struct LootRetry
+        {
+            uint32 started;
+            uint32 duration;
+        };
+        std::map<ObjectGuid, LootRetry> lootRetries;
+        ObjectGuid activeLoot;
+        uint32 lootStarted = 0;
+        uint32 lootProgress = 0;
+        uint32 lootOpened = 0;
+        bool lootOpening = false;
+        float lootProgressX = 0;
+        float lootProgressY = 0;
+        float lootProgressZ = 0;
+        float lootBestDistance = 0;
     };
 
 };

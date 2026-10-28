@@ -181,7 +181,9 @@ namespace ai
                 creators["frost ward"] = [](PlayerbotAI* ai) { return new FrostWardTrigger(ai); };
                 creators["blink"] = [](PlayerbotAI* ai) { return new BlinkTrigger(ai); };
                 creators["mage pvp retreat"] = [](PlayerbotAI* ai) { return new MagePvpRetreatTrigger(ai); };
+                creators["mage pve retreat"] = [](PlayerbotAI* ai) { return new MagePveRetreatTrigger(ai); };
                 creators["leveling arcane explosion"] = [](PlayerbotAI* ai) { return new LevelingArcaneExplosionTrigger(ai); };
+                creators["mage ot arcane explosion"] = [](PlayerbotAI* ai) { return new MageOtArcaneExplosionTrigger(ai); };
                 creators["mage blizzard aoe"] = [](PlayerbotAI* ai) { return new MageGroundAoeTrigger(ai, "blizzard"); };
                 creators["mage flamestrike aoe"] = [](PlayerbotAI* ai) { return new MageGroundAoeTrigger(ai, "flamestrike"); };
                 creators["mage arcane explosion aoe"] = [](PlayerbotAI* ai) { return new MageArcaneExplosionAoeTrigger(ai); };
@@ -252,10 +254,12 @@ namespace ai
                 creators["fire ward"] = [](PlayerbotAI* ai) { return new CastFireWardAction(ai); };
                 creators["frost ward"] = [](PlayerbotAI* ai) { return new CastFrostWardAction(ai); };
                 creators["blink"] = [](PlayerbotAI* ai) { return new CastBlinkAction(ai); };
+                creators["mage pve retreat"] = [](PlayerbotAI* ai) { return new MagePveRetreatAction(ai); };
                 creators["ice barrier"] = [](PlayerbotAI* ai) { return new CastIceBarrierAction(ai); };
                 creators["mana shield"] = [](PlayerbotAI* ai) { return new CastManaShieldAction(ai); };
                 creators["arcane explosion"] = [](PlayerbotAI* ai) { return new CastArcaneExplosionAction(ai); };
                 creators["leveling arcane explosion"] = [](PlayerbotAI* ai) { return new CastLevelingArcaneExplosionAction(ai); };
+                creators["mage ot arcane explosion"] = [](PlayerbotAI* ai) { return new CastMageOtArcaneExplosionAction(ai); };
                 creators["cone of cold"] = [](PlayerbotAI* ai) { return new CastConeOfColdAction(ai); };
                 creators["summon water elemental"] = [](PlayerbotAI* ai) { return new CastSummonWaterElementalAction(ai); };
                 creators["ice lance"] = [](PlayerbotAI* ai) { return new CastIceLanceAction(ai); };

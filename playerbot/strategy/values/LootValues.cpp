@@ -414,8 +414,17 @@ bool ShouldLootObject::Calculate()
 
 	for (auto& lItem : lootAccess->GetLootContentFor(bot))
 	{
-		if (!lItem->itemId)
-			continue;
+        if (!lItem || !lItem->itemId || lItem->isBlocked || !lItem->IsAllowed(bot, object->m_loot))
+            continue;
+
+        // A visible or useful master-loot item is not necessarily collectible by this bot.
+        LootSlotType slotType = lItem->GetSlotTypeForSharedLoot(bot, object->m_loot);
+        if (slotType != LOOT_SLOT_NORMAL
+#ifndef MANGOSBOT_ZERO
+            && slotType != LOOT_SLOT_OWNER
+#endif
+            )
+            continue;
 
 		uint32 canLootAmount = AI_VALUE2(uint32, "stack space for item", lItem->itemId);
 

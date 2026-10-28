@@ -124,6 +124,10 @@ void ChatCommandHandlerStrategy::InitReactionTriggers(std::list<TriggerNode*> &t
     PassTroughStrategy::InitNonCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        CastNcTrigger,
+        NextAction::array(0, new NextAction(CastNcAction, relevance), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "rep",
         NextAction::array(0, new NextAction("reputation", relevance), NULL)));
 

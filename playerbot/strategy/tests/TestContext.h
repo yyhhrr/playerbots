@@ -36,6 +36,7 @@ namespace ai
         // a teleport the target grid/mmaps may not be loaded yet, so the monitor only fails after
         // a grace period instead of on the first tick (same pattern as undergroundCount).
         uint32 cannotReachCount;
+        bool combatSeen;
         uint32 focusMobEntry;                   
         ObjectGuid focusMobGuid;                
         bool focusMobKilled;                    
@@ -90,6 +91,9 @@ namespace ai
         void RecordDeliveredGroupMember(ObjectGuid guid);
         std::set<ObjectGuid> GetDeliveredGroupMembers();
 
+        bool lootStackSeen = false;
+        bool actionSpamArmed = false;
+
         // BL-44: snapshot of the expected group-member count, taken at the monitor's first tick. The
         // live group can shrink mid-window (a member leaves), which would silently lower the bar; the
         // snapshot keeps the original assertion strength for the whole observe window.
@@ -97,7 +101,7 @@ namespace ai
 
         bool debug = false; // enable extra logging for debugging
 
-        TestContext() : pc(0), observing(false), testStartTime(0), monitorTime(0), waitTime(0), undergroundCount(0), cannotReachCount(0), focusMobEntry(0), focusMobKilled(false), focusMobPassive(false), cleanupPc(0), cleanupPrepared(false), whoResponded(false), result(TestResult::PENDING) {}
+        TestContext() : pc(0), observing(false), testStartTime(0), monitorTime(0), waitTime(0), undergroundCount(0), cannotReachCount(0), combatSeen(false), focusMobEntry(0), focusMobKilled(false), focusMobPassive(false), cleanupPc(0), cleanupPrepared(false), whoResponded(false), result(TestResult::PENDING) {}
 
         void Reset();
     };

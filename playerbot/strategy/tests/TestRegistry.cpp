@@ -852,9 +852,10 @@ void TestRegistry::EnsureTestsRegistered()
     RegisterQuestSuiteTests();
     RegisterTeleportTests();
     RegisterLabTests();
+    RegisterFleeTests();
     RegisterLabMicroTests();
     RegisterLabStayGuardTests();
-    RegisterFleeTests();
+    RegisterLabLootTests();
 
     sTestsRegistered = true;
     sTestsRegistering = false;

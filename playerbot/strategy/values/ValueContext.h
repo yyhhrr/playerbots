@@ -395,6 +395,7 @@ namespace ai
             creators["manual bool"] = [](PlayerbotAI* ai) { return new BoolManualSetValue(ai); };
             creators["warsong combat progress"] = [](PlayerbotAI* ai) { return new WarsongCombatProgressValue(ai); };
             creators["alterac combat progress"] = [](PlayerbotAI* ai) { return new AlteracCombatProgressValue(ai); };
+            creators["movement loop age"] = [](PlayerbotAI* ai) { return new IntManualSetValue(ai); };
             creators["manual int"] = [](PlayerbotAI* ai) { return new IntManualSetValue(ai); };
             creators["manual saved int"] = [](PlayerbotAI* ai) { return new IntManualSetSavedValue(ai); };
             creators["manual string"] = [](PlayerbotAI* ai) { return new StringManualSetValue(ai); };

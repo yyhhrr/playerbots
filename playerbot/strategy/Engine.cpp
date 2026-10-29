@@ -273,6 +273,8 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
                         if (actionExecuted)
                         {
+                            TrackLoop(action);
+
                             LogAction("A:%s - OK", action->getName().c_str());
                             MultiplyAndPush(actionNode->getContinuers(), 0, false, event, "cont");
                             lastRelevance = relevance;
@@ -385,6 +387,9 @@ void Engine::PruneUnhandledExternalEvents()
         bool held = false;
         for (std::list<TriggerNode*>::iterator i = triggers.begin(); i != triggers.end(); i++)
         {
+            if (!*i)
+                continue;
+
             if ((*i)->getName() == it->first)
             {
                 held = true;
@@ -688,7 +693,11 @@ void Engine::ProcessTriggers(bool minimal)
 
     for (std::list<TriggerNode*>::iterator i = triggers.begin(); i != triggers.end(); i++)
     {
-        Trigger* trigger = (*i)->getTrigger();
+        TriggerNode* node = *i;
+        if (!node)
+            continue;
+
+        Trigger* trigger = node->getTrigger();
         if (!trigger)
             continue;
 
@@ -930,4 +939,51 @@ void Engine::LogValues()
 
     std::string text = ai->GetAiObjectContext()->FormatValues();
     sLog.outDebug( "Values for %s: %s", bot->GetName(), text.c_str());
+}
+void Engine::TrackLoop(Action* action)
+{
+    Player* bot = ai->GetBot();
+    if (!bot || !action)
+        return;
+
+    AiObjectContext* context = aiObjectContext;
+    WorldPosition pos(bot);
+
+    if (!action->IsMovement() || action->getName() != lastLoopAction || !pos.isFinite())
+    {
+        lastLoopAction = action->getName();
+        lastLoopStart = time(0);
+        lastLoopMap = pos.mapid;
+        lastLoopX = pos.coord_x;
+        lastLoopY = pos.coord_y;
+        lastLoopHealth = bot->GetHealth();
+        lastLoopTarget = AI_VALUE(ObjectGuid, "current target");
+        SET_AI_VALUE(int, "movement loop age", 0);
+        return;
+    }
+
+    float moved = lastLoopMap == pos.mapid
+        ? sqrt((pos.coord_x - lastLoopX) * (pos.coord_x - lastLoopX) + (pos.coord_y - lastLoopY) * (pos.coord_y - lastLoopY))
+        : 1000000.0f;
+
+    ObjectGuid currentTargetGuid = AI_VALUE(ObjectGuid, "current target");
+    bool hasLife = moved > 5.0f || (bot->IsInCombat() && bot->GetHealth() != lastLoopHealth) || (lastLoopTarget && currentTargetGuid != lastLoopTarget);
+
+    if (hasLife)
+    {
+        lastLoopStart = time(0);
+        lastLoopMap = pos.mapid;
+        lastLoopX = pos.coord_x;
+        lastLoopY = pos.coord_y;
+        lastLoopHealth = bot->GetHealth();
+        lastLoopTarget = currentTargetGuid;
+        SET_AI_VALUE(int, "movement loop age", 0);
+        return;
+    }
+
+    int age = int(time(0) - lastLoopStart);
+    SET_AI_VALUE(int, "movement loop age", age);
+
+    if (age >= int(sPlayerbotAIConfig.motionlessGiveUpSec))
+        lastLoopStart = time(0);
 }

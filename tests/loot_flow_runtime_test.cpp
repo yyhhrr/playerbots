@@ -198,6 +198,9 @@ struct PlayerbotAI
     ChatHelper chat;
     std::map<ObjectGuid, WorldObject*> objects;
     unsigned respawns = 0;
+    bool freeMoveAllowed = true;
+    unsigned freeMoveChecks = 0;
+    WorldObject* freeMoveTarget = nullptr;
     explicit PlayerbotAI(Player* bot) : bot(bot) { bot->ai = this; }
     bool HasStrategy(const std::string&, BotState) const { return false; }
     WorldObject* GetWorldObject(ObjectGuid id) const
@@ -207,6 +210,15 @@ struct PlayerbotAI
     void TellPlayerNoFacing(Player*, std::ostringstream&, PlayerbotSecurityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool = true) {}
     void PlayEmote(uint32) {}
     void AccelerateRespawn(ObjectGuid) { ++respawns; }
+};
+struct CanFreeMoveValue
+{
+    static bool CanFreeMoveTo(PlayerbotAI* ai, WorldPosition destination)
+    {
+        ++ai->freeMoveChecks;
+        ai->freeMoveTarget = destination.object;
+        return ai->freeMoveAllowed;
+    }
 };
 WorldObject* LootObject::GetWorldObject(Player* bot) { return bot->ai->GetWorldObject(guid); }
 bool LootObject::IsLootPossible(Player* bot)
@@ -357,6 +369,29 @@ int main()
             Check(far.IsActive(), "a corpse outside the boundary still requires approach");
         }
         f.bot.x=0;f.bot.z=8;Check(!target.IsWithinLootDistance(&f.bot), "a corpse on another floor cannot be opened from below");
+    }
+    {
+        Fixture f; FarFromCurrentLootTrigger far(&f.ai); f.bot.x=8;
+        f.ai.freeMoveAllowed=false;
+        Check(!far.IsActive(), "a corpse outside the permitted movement area cannot trigger approach");
+        Check(f.ai.freeMoveChecks==1 && f.ai.freeMoveTarget==&f.corpse, "movement permission checks the actual loot destination");
+        f.ai.freeMoveAllowed=true;
+        Check(far.IsActive(), "approach resumes when the loot destination becomes permitted");
+        Check(f.ai.freeMoveChecks==2, "movement permission is checked again when conditions change");
+    }
+    {
+        Fixture f; FarFromCurrentLootTrigger far(&f.ai); MoveToLootAction move(&f.ai); f.bot.x=8;
+        f.stack.MarkLootOpened(f.corpse.guid);
+        Check(!far.IsActive(), "a pending corpse outside interaction range does not trigger another approach");
+        Check(f.ai.freeMoveChecks==0, "pending loot is rejected before movement permission is considered");
+        Check(move.Execute(f.event) && move.nearCalls==0 && move.toCalls==0, "a pending response never restarts movement even outside interaction range");
+    }
+    {
+        Fixture f; FarFromCurrentLootTrigger far(&f.ai); MoveToLootAction move(&f.ai); f.bot.x=8;
+        f.stack.DeferLoot(f.corpse.guid);
+        Check(!far.IsActive(), "a deferred corpse outside interaction range does not trigger another approach");
+        Check(f.ai.freeMoveChecks==0, "deferred loot is rejected before movement permission is considered");
+        Check(!move.Execute(f.event) && move.nearCalls==0 && move.toCalls==0, "a retry cooldown prevents direct movement from restarting too");
     }
     {
         Fixture f; LootAction select(&f.ai);

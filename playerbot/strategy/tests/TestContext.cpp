@@ -15,6 +15,7 @@ void TestContext::Reset()
     deferredCleanups.clear();
     cleanupPc = 0;
     cleanupPrepared = false;
+    combatSeen = false;
     whoResponded = false;
     result = TestResult::PENDING;
     resultMessage.clear();
@@ -39,6 +40,8 @@ void TestContext::Reset()
     spawnedBots.clear();
     deliveredGroupMembers.clear();
     groupOnMapExpected = 0;
+    lootStackSeen = false;
+    actionSpamArmed = false;
 }
 
 void TestContext::RecordDeliveredGroupMember(ObjectGuid guid)

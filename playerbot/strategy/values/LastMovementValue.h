@@ -40,6 +40,7 @@ namespace ai
             lastTransportEntry = 0;
             lastFlee = 0;
             lastMoveShort = WorldPosition();
+            lastFleeTo = WorldPosition();
             nextTeleport = 0;
             dungeonGoal = WorldPosition();
             dungeonSplineId = 0;
@@ -64,6 +65,7 @@ namespace ai
         uint32 lastAreaTrigger;
         uint32 lastTransportEntry;
         time_t lastFlee;
+        WorldPosition lastFleeTo;
         TravelPath lastPath;
         WorldPosition lastMoveShort;
         time_t nextTeleport;

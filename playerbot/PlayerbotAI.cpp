@@ -5126,7 +5126,9 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 	//bot->clearUnitState(UNIT_STAT_FOLLOW);
 
 	bool failWithDelay = false;
-    if (!bot->IsStandState())
+    // Respect native seated-casting permissions for eating and drinking.
+    SpellEntry const* sitCheckInfo = sServerFacade.LookupSpellInfo(spellId);
+    if (!bot->IsStandState() && !(sitCheckInfo && sitCheckInfo->HasAttribute(SPELL_ATTR_ALLOW_WHILE_SITTING)))
     {
         bot->SetStandState(UNIT_STAND_STATE_STAND);
         failWithDelay = true;
@@ -8888,6 +8890,7 @@ void PlayerbotAI::EnchantItemT(uint32 spellid, uint8 slot, Item* item)
    if (!spellInfo)
       return;
 
+   // The shared policy validates item restrictions and preserves classic DBC exceptions.
    if (!ai::enchanting::CanApplyEnchantment(bot, pItem, spellInfo))
        return;
 

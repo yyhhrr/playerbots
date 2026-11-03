@@ -59,6 +59,10 @@ namespace
         WorldDatabase.trainers.push_back({{5007}, {0}}); // First trainer recipe normalizes zero to one.
         sSpellItemEnchantmentStore.entries[1007] = {{5, 0, 0}, {5, 0, 0}, {1, 0, 0}};
         Spell(5010, 1010); // No trainer or recipe entry: remain unknown below sixty.
+        Spell(5100, 1500, 4, 1u << 1, 1u << 5); // Chest and cloth must both match.
+        WorldDatabase.trainers.push_back({{5100}, {100}});
+        Spell(13419, 1501, 2, 1u << 7, 1u << 16); // Classic cloak DBC wrongly requires a weapon.
+        WorldDatabase.trainers.push_back({{13419}, {100}});
         // Classic's automatically learned first bracer enchant has no trainer
         // row. Non-starter DBC requirement=1 is not authoritative metadata.
         Spell(7418, 41, 4, 0, 1u << 9);
@@ -138,6 +142,34 @@ int main()
     sword.proto.Class = 2; sword.proto.SubClass = 8;
     Check(!CanApplyEnchantment(&mage, &sword, sServerFacade.LookupSpellInfo(5000)), "the weapon subclass restriction remains effective");
     sword.proto.SubClass = 7;
+
+    Player enchanter; enchanter.level = 60;
+    Item chest; chest.owner = &enchanter; chest.proto = {2, 4, 1, 5}; chest.slot = 4;
+    const auto* chestEnchant = sServerFacade.LookupSpellInfo(5100);
+    Check(CanApplyEnchantment(&enchanter, &chest, chestEnchant),
+        "a matching chest satisfies every item restriction");
+    chest.proto.Class = 2;
+    Check(!CanApplyEnchantment(&enchanter, &chest, chestEnchant),
+        "matching subclass and inventory masks cannot bypass the chest enchant item class");
+    chest.proto.Class = 4; chest.proto.SubClass = 2;
+    Check(!CanApplyEnchantment(&enchanter, &chest, chestEnchant),
+        "matching class and inventory masks cannot bypass the chest enchant subclass");
+    chest.proto.SubClass = 1; chest.proto.InventoryType = 11;
+    Check(!CanApplyEnchantment(&enchanter, &chest, chestEnchant),
+        "a ring cannot receive a chest enchant even when its class and subclass match");
+    Item cloak; cloak.owner = &enchanter; cloak.proto = {2, 4, 1, 16}; cloak.slot = 14;
+    const auto* cloakEnchant = sServerFacade.LookupSpellInfo(13419);
+    Check(CanApplyEnchantment(&enchanter, &cloak, cloakEnchant),
+        "the classic minor-agility cloak DBC exception remains usable at maximum level");
+    cloak.proto.Quality = 1;
+    Check(!CanApplyEnchantment(&enchanter, &cloak, cloakEnchant),
+        "the classic DBC exception cannot bypass the white-equipment restriction");
+    cloak.proto.Quality = 2; enchanter.level = 19;
+    Check(!CanApplyEnchantment(&enchanter, &cloak, cloakEnchant),
+        "the classic DBC exception cannot bypass the caster level-times-five skill ceiling");
+    Player cloakOwner; cloakOwner.level = 19; cloak.owner = &cloakOwner; enchanter.level = 60;
+    Check(!CanApplyEnchantment(&enchanter, &cloak, cloakEnchant),
+        "the classic DBC exception cannot bypass the recipient level-times-five skill ceiling");
 
     Player owner;
     sword.owner = &owner;

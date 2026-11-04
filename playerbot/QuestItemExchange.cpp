@@ -162,7 +162,8 @@ namespace
         Player* bot = ai->GetBot();
         const ItemPrototype* proto = sObjectMgr.GetItemPrototype(reward.itemId);
         const ForceItemUsage forced = ForcedUsage(ai, reward.itemId);
-        if (!proto || !reward.count || proto->InventoryType == INVTYPE_NON_EQUIP || proto->GetMaxStackSize() != 1 ||
+        if (!proto || proto->Quality < ITEM_QUALITY_NORMAL || !reward.count ||
+            proto->InventoryType == INVTYPE_NON_EQUIP || proto->GetMaxStackSize() != 1 ||
             skipped.count(reward.itemId) || forced == ForceItemUsage::FORCE_USAGE_BAG ||
             forced == ForceItemUsage::FORCE_USAGE_GREED || bot->CanUseItem(proto) != EQUIP_ERR_OK)
             return false;

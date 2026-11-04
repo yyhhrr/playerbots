@@ -362,9 +362,10 @@ bool EquipUpgradesAction::Execute(Event& event)
     Item* oldMainhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
     Item* oldOffhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
         
-    if (oldMainhand)
+    // Leave an existing poor weapon or shield equipped until a replacement succeeds.
+    if (oldMainhand && oldMainhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
         UnequipAction::UnequipItem(ai, bot, oldMainhand, true);
-    if (oldOffhand)
+    if (oldOffhand && oldOffhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
         UnequipAction::UnequipItem(ai, bot, oldOffhand, true);
 
     context->ClearExpiredValues("item usage", 10); //Clear old item usage.
@@ -390,8 +391,13 @@ bool EquipUpgradesAction::Execute(Event& event)
 
     for (auto& item : items)
     {
+        const ItemPrototype* proto = item->GetProto();
+        if (proto->Quality < ITEM_QUALITY_NORMAL &&
+            AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", proto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) != ForceItemUsage::FORCE_USAGE_EQUIP)
+            continue;
+
 #ifdef MANGOSBOT_TWO
-        if (item->GetProto()->Class == ITEM_CLASS_GLYPH)
+        if (proto->Class == ITEM_CLASS_GLYPH)
             continue;
 #endif
 
@@ -424,7 +430,7 @@ bool EquipUpgradesAction::Execute(Event& event)
             float mhMaxDmg = mh->GetProto()->Damage[0].DamageMax;
             float ohMaxDmg = oh->GetProto()->Damage[0].DamageMax;
 
-            if (ohMaxDmg > mhMaxDmg)
+            if (ohMaxDmg > mhMaxDmg && oh->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
             {
                 uint16 srcPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_MAINHAND);
                 uint16 dstPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_OFFHAND);

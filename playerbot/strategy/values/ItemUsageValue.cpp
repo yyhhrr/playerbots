@@ -559,6 +559,9 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     ChatHelper* chat = ai->GetChatHelper();
     ItemPrototype const* itemProto = itemQualifier.GetProto();
 
+    if (!itemProto || itemProto->Quality < ITEM_QUALITY_NORMAL)
+        return ItemUsage::ITEM_USAGE_NONE;
+
     if (bot->CanUseItem(itemProto) != EQUIP_ERR_OK)
         return ItemUsage::ITEM_USAGE_NONE;
 
@@ -709,8 +712,11 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
             return ItemUsage::ITEM_USAGE_NONE;
     }
 
+    const bool replacesPoorGear = oldItemProto->Quality < ITEM_QUALITY_NORMAL && shouldEquip;
     uint32 oldStatWeight = sRandomItemMgr.ItemStatWeight(bot, oldItem);
-    if (statWeight && oldStatWeight)
+    if (replacesPoorGear)
+        shouldEquip = true;
+    else if (statWeight && oldStatWeight)
     {
         shouldEquip = statWeight >= oldStatWeight;
     }
@@ -730,7 +736,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
 
     //Compare items based on item level, quality.
     bool isBetter = false;
-    if (statWeight > oldStatWeight)
+    if (replacesPoorGear || statWeight > oldStatWeight)
         isBetter = true;
     else if (statWeight == oldStatWeight && itemProto->Quality > oldItemProto->Quality)
         isBetter = true;

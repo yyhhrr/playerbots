@@ -8,11 +8,44 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/DungeonMovement.h"
+#include "Movement/MoveSpline.h"
 
 using namespace ai;
 
+Player* FollowAction::GetDungeonCatchUpTarget(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    const BotState state = BotState::BOT_STATE_NON_COMBAT;
+    if (!bot->IsInWorld() || !bot->GetMap()->IsDungeon() || !bot->GetGroup() ||
+        ai->IsRealPlayer() || ai->GetState() != state || !bot->IsAlive() || bot->IsInCombat() ||
+        bot->GetTransport() || bot->IsFlying() || bot->IsFreeFlying() || bot->IsSwimming() || bot->IsInWater() ||
+        !bot->movespline->Finalized() || bot->GetTradeData() || bot->IsNonMeleeSpellCasted(true) || !ai->CanMove() ||
+        !ai->HasStrategy("follow", state) || ai->HasStrategy("stay", state) ||
+        ai->HasStrategy("guard", state) || ai->HasStrategy("passive", state))
+        return nullptr;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    Player* leader = dynamic_cast<Player*>(ai->GetUnit(AI_VALUE(ObjectGuid, "follow target")));
+    if (!leader || leader == bot || !ai->IsSafe(leader) || !leader->IsInWorld() ||
+        !leader->IsAlive() || leader->IsInCombat() || leader->GetGroup() != bot->GetGroup() ||
+        leader->GetMap() != bot->GetMap() || leader->IsBeingTeleported() || leader->GetTransport() ||
+        leader->IsTaxiFlying() || leader->IsFlying() || leader->IsFreeFlying() || leader->IsSwimming() || leader->IsInWater() ||
+        (leader->GetPlayerbotAI() && !leader->GetPlayerbotAI()->IsRealPlayer()))
+        return nullptr;
+
+    const float catchUpDistance = std::max(10.0f, ai->GetRange("follow") + 5.0f);
+    if (bot->GetDistance(leader) <= catchUpDistance || AI_VALUE(LootObjectStack*, "available loot")->ShouldHoldFollow())
+        return nullptr;
+
+    return leader;
+}
+
 bool FollowAction::Execute(Event& event)
 {
+    Player* catchUpTarget = GetDungeonCatchUpTarget(ai);
+    if (catchUpTarget && dungeon::IsActive(ai))
+        return Follow(catchUpTarget, 0, 0);
+
     bool moved = false;
     Unit* followTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "follow target"));
     Formation* formation = AI_VALUE(Formation*, "formation");
@@ -24,6 +57,10 @@ bool FollowAction::Execute(Event& event)
             WorldLocation loc = formation->GetLocation();
             if (!Formation::IsNullLocation(loc) && loc.mapid != -1)
             {
+                // A stopped native follow generator can still report the expected target and offset.
+                if (catchUpTarget && catchUpTarget == followTarget &&
+                    bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+                    bot->GetMotionMaster()->Clear(false, true);
                 moved = Follow(followTarget, formation->GetOffset(), formation->GetAngle());
             }
         }
@@ -38,6 +75,9 @@ bool FollowAction::isUseful()
 {
     if (!ai->CanMove())
         return false;
+
+    if (GetDungeonCatchUpTarget(ai))
+        return true;
 
     float distance = 0;
     Unit* followTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "follow target"));

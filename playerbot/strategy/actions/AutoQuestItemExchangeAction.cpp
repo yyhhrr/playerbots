@@ -262,7 +262,8 @@ bool AutoQuestItemExchangeAction::Redeem(const QuestItemExchangePlan& plan, bool
     for (const auto& reward : plan.rewards)
     {
         const ItemPrototype* proto = sObjectMgr.GetItemPrototype(reward.itemId);
-        if (!proto || reward.count != 1 || reward.slot >= EQUIPMENT_SLOT_END || !rewardSlots.insert(reward.slot).second ||
+        if (!proto || proto->Quality < ITEM_QUALITY_NORMAL || reward.count != 1 ||
+            reward.slot >= EQUIPMENT_SLOT_END || !rewardSlots.insert(reward.slot).second ||
             proto->InventoryType == INVTYPE_NON_EQUIP || proto->GetMaxStackSize() != 1 ||
             bot->CanUseItem(proto) != EQUIP_ERR_OK ||
             reward.count > std::numeric_limits<uint32>::max() - expectedCounts[reward.itemId])

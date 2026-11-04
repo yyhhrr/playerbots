@@ -5,6 +5,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 struct ObjectGuid
@@ -48,7 +49,7 @@ using Movement::Vector3;
 constexpr float M_PI_F = 3.14159265358979323846f;
 
 #ifdef DUNGEON_MOTION_TEST
-enum MovementGeneratorType { IDLE_MOTION_TYPE, PATH_MOTION_TYPE, CHASE_MOTION_TYPE };
+enum MovementGeneratorType { IDLE_MOTION_TYPE, PATH_MOTION_TYPE, CHASE_MOTION_TYPE, FOLLOW_MOTION_TYPE };
 enum ForcedMovement { FORCED_MOVEMENT_WALK, FORCED_MOVEMENT_RUN };
 struct MotionMaster
 {
@@ -118,6 +119,7 @@ struct WorldObject
     ObjectGuid GetObjectGuid() const { return guid; }
     uint32 GetGUIDLow() const { return uint32(guid.value); }
     void GetPosition(float& ox, float& oy, float& oz) const { ox = x; oy = y; oz = z; }
+    float GetDistance(const WorldObject* other) const { return std::hypot(x - other->x, y - other->y, z - other->z); }
     bool IsInMap(const WorldObject* other) const { return other && other->map == map; }
     bool IsWithinDistInMap(const WorldObject* other, float distance) const
     {
@@ -133,6 +135,7 @@ struct Unit : WorldObject
 {
     bool alive = true, flying = false, freeFlying = false, swimming = false, inWater = false;
     bool falling = false, teleporting = false, combat = false, visible = true;
+    bool casting = false;
     void* transport = nullptr;
     Unit* victim = nullptr;
     bool IsUnit() const override { return true; }
@@ -145,6 +148,7 @@ struct Unit : WorldObject
     bool IsFalling() const { return falling; }
     bool IsBeingTeleported() const { return teleporting; }
     bool IsInCombat() const { return combat; }
+    bool IsNonMeleeSpellCasted(bool, bool = false, bool = false, bool = false) const { return casting; }
     bool IsTaxiFlying() const { return false; }
     void* GetTransport() const { return transport; }
     Unit* GetVictim() const { return victim; }
@@ -158,16 +162,37 @@ struct Unit : WorldObject
 struct PlayerbotAI;
 enum class BotState { BOT_STATE_COMBAT, BOT_STATE_NON_COMBAT, BOT_STATE_DEAD, BOT_STATE_REACTION, BOT_STATE_ALL };
 #ifdef DUNGEON_MOTION_TEST
-namespace ai { class LastMovement; }
+namespace ai { class LastMovement; struct Formation; }
+struct LootObjectStack
+{
+    bool holdingFollow = false;
+    bool ShouldHoldFollow() const { return holdingFollow; }
+};
+struct Group {};
 struct DungeonTestAiContext
 {
+    template<class T> struct Value
+    {
+        T data{};
+        T Get() const { return data; }
+    };
     struct MovementValue
     {
         ai::LastMovement* data = nullptr;
         ai::LastMovement& Get() { return *data; }
     } movement;
-    template<class T> MovementValue* GetValue(const char*) { return &movement; }
+    Value<ObjectGuid> followTarget;
+    Value<LootObjectStack*> loot;
+    Value<ai::Formation*> formation;
+    template<class T> auto* GetValue(const char*)
+    {
+        if constexpr (std::is_same_v<T, ObjectGuid>) return &followTarget;
+        else if constexpr (std::is_same_v<T, LootObjectStack*>) return &loot;
+        else if constexpr (std::is_same_v<T, ai::Formation*>) return &formation;
+        else return &movement;
+    }
 };
+using AiObjectContext = DungeonTestAiContext;
 #endif
 struct Player : Unit
 {
@@ -178,8 +203,12 @@ struct Player : Unit
     Movement::MoveSpline* movespline = &spline;
     MotionMaster motion{&spline};
     unsigned synchronizations = 0;
+    Group* group = nullptr;
+    void* trade = nullptr;
     Player() { motion.currentPosition = [this] { return Vector3{x, y, z}; }; }
     MotionMaster* GetMotionMaster() { return &motion; }
+    Group* GetGroup() const { return group; }
+    void* GetTradeData() const { return trade; }
     void UpdateSplinePosition(bool)
     {
         ++synchronizations;
@@ -198,6 +227,12 @@ struct PlayerbotAI
     BotState state = BotState::BOT_STATE_NON_COMBAT;
     mutable unsigned stateReads = 0;
     bool dungeonCombatStrategy = false, dungeonNonCombatStrategy = false;
+#ifdef DUNGEON_MOTION_TEST
+    bool followStrategy = true, stayStrategy = false, guardStrategy = false, passiveStrategy = false;
+    bool realPlayer = false;
+    float followRange = 1.5f;
+    bool IsRealPlayer() const { return realPlayer; }
+#endif
     Player* GetBot() const { return bot; }
     Player* GetMaster() const { return master; }
     Player* GetGroupMaster() const { return master; }
@@ -208,18 +243,33 @@ struct PlayerbotAI
     bool IsStateActive(BotState requested) const { return requested == state; }
     bool HasStrategy(const std::string& name, BotState requested) const
     {
+#ifdef DUNGEON_MOTION_TEST
+        if (requested == BotState::BOT_STATE_NON_COMBAT)
+        {
+            if (name == "follow") return followStrategy;
+            if (name == "stay") return stayStrategy;
+            if (name == "guard") return guardStrategy;
+            if (name == "passive") return passiveStrategy;
+        }
+#endif
         if (name != "dungeon safe") return false;
         return requested == BotState::BOT_STATE_COMBAT ? dungeonCombatStrategy :
             requested == BotState::BOT_STATE_NON_COMBAT && dungeonNonCombatStrategy;
     }
     bool IsRanged(const Player*) const { return false; }
-    float GetRange(const char*) const { return 30.0f; }
+    float GetRange(const char* name) const
+    {
+#ifdef DUNGEON_MOTION_TEST
+        if (std::string(name) == "follow") return followRange;
+#endif
+        return 30.0f;
+    }
 #ifdef DUNGEON_MOTION_TEST
     DungeonTestAiContext context;
     DungeonTestAiContext* GetAiObjectContext() { return &context; }
     bool canMove = true;
     unsigned stops = 0;
-    bool CanMove() const { return canMove; }
+    bool CanMove() const { return canMove && !bot->teleporting; }
     void StopMoving()
     {
         ++stops;

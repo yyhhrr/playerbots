@@ -3137,7 +3137,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             continue;
 
         uint32 searchLevel = level;
-        uint32 quality = ITEM_QUALITY_POOR;
+        uint32 quality = ITEM_QUALITY_NORMAL;
         uint32 maxItemLevel = sPlayerbotAIConfig.randomGearMaxLevel;
         bool progressiveGear = progressive;
         if(syncWithMaster && ai->GetMaster())
@@ -3156,7 +3156,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 if (!incremental)
                 {
                     if (level < 10)
-                        quality = ITEM_QUALITY_POOR;
+                        quality = ITEM_QUALITY_NORMAL;
                     else if (level < 20)
                         quality = urand(ITEM_QUALITY_NORMAL, ITEM_QUALITY_UNCOMMON);
                     else if (level < 40)
@@ -3186,9 +3186,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 }
                 else
                 {
-                    if (level < 10)
-                        quality = ITEM_QUALITY_POOR;
-                    else if (level < 20)
+                    if (level < 20)
                         quality = ITEM_QUALITY_NORMAL;
                     else if (level < 40)
                         quality = ITEM_QUALITY_UNCOMMON;
@@ -3247,13 +3245,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 {
                     uint32 newItemId = ids[index];
 
-                    // filter item level
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
-                    if (!proto)
-                        continue;
-
-                    // use only common items
-                    if (proto->Quality > ITEM_QUALITY_UNCOMMON)
+                    if (!proto || proto->Quality < ITEM_QUALITY_NORMAL || proto->Quality > ITEM_QUALITY_UNCOMMON)
                         continue;
 
                     // skip unique-equippable items if already have one in inventory
@@ -3310,14 +3303,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         for (auto id : ids)
                         {
                             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(id);
-                            if(proto)
-                            {
-                                if (proto->ItemLevel > maxItemLevel)
-                                    continue;
+                            if (!proto || proto->Quality < ITEM_QUALITY_NORMAL || proto->ItemLevel > maxItemLevel)
+                                continue;
 
-                                hasProperLevel = true;
-                                break;
-                            }
+                            hasProperLevel = true;
+                            break;
                         }
 
                         if (!hasProperLevel)
@@ -3389,9 +3379,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 {
                     uint32 newItemId = ids[index];
 
-                    // filter item level
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
-                    if (!proto)
+                    if (!proto || proto->Quality < ITEM_QUALITY_NORMAL)
                         continue;
 
                     if (std::find(lockedItems.begin(), lockedItems.end(), proto->ItemId) != lockedItems.end())
@@ -3561,11 +3550,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                                 continue;
                         }
 
-                    if (incremental && oldItem && oldStatValue >= newStatValue && oldStatValue > 1)
-                        continue;
-
-                    // replace grey items right away
-                    if ((incremental || progressiveGear) && oldItem && oldProto->Quality < ITEM_QUALITY_NORMAL && proto->Quality < ITEM_QUALITY_NORMAL && level > 5)
+                    if (incremental && oldProto && oldProto->Quality >= ITEM_QUALITY_NORMAL && oldStatValue >= newStatValue && oldStatValue > 1)
                         continue;
 
                     uint16 eDest;
@@ -3609,7 +3594,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             }
 
             attempts++;
-        } while (!found && attempts < 3 && quality != ITEM_QUALITY_POOR);
+        } while (!found && attempts < 3);
         if (!found)
         {
             if (slot != EQUIPMENT_SLOT_TRINKET1 && slot != EQUIPMENT_SLOT_TRINKET2)

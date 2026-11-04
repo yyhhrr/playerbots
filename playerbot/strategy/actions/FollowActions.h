@@ -11,6 +11,7 @@ namespace ai
 		virtual bool Execute(Event& event) override;
         virtual bool isUseful() override;
         virtual bool CanDeadFollow(Unit* target);
+        static Player* GetDungeonCatchUpTarget(PlayerbotAI* ai);
 	};
 
 	class StopFollowAction : public MovementAction {

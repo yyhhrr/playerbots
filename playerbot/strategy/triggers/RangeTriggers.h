@@ -3,6 +3,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
+#include "playerbot/strategy/actions/FollowActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/Formations.h"
 #include "playerbot/DungeonMovement.h"
@@ -474,7 +475,7 @@ namespace ai
 
         virtual bool IsActive() override
         {
-            return !AI_VALUE(bool, "can free move");
+            return !AI_VALUE(bool, "can free move") || FollowAction::GetDungeonCatchUpTarget(ai);
         };
     };
 }

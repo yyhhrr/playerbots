@@ -77,6 +77,10 @@ bool UpdateGearAction::Execute(Event& event)
         if (itemId >= 0)
         {
             const uint32 pItemId = (uint32)itemId;
+            const ItemPrototype* proto = pItemId ? sObjectMgr.GetItemPrototype(pItemId) : nullptr;
+            if (proto && proto->Quality < ITEM_QUALITY_NORMAL)
+                continue;
+
             Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
             if (oldItem)
             {

@@ -20,6 +20,7 @@
 #include "strategy/actions/LogLevelAction.h"
 #include "strategy/actions/SayAction.h"
 #include "strategy/actions/EmoteAction.h"
+#include "strategy/actions/FollowActions.h"
 #include "strategy/actions/NeedRollCommand.h"
 #include "strategy/actions/QuestItemExchangeCommand.h"
 #include "strategy/actions/UseMeetingStoneAction.h"
@@ -637,8 +638,13 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         e->OnUpdateAI(this, bot->GetName());
 #endif
 
-    // Only update the internal ai when no reaction is running and the internal ai can be updated
-    if(!UpdateAIReaction(elapsed, doMinimalReaction, bot->IsTaxiFlying()) && CanUpdateAIInternal())
+    const bool reactionInProgress = UpdateAIReaction(elapsed, doMinimalReaction, bot->IsTaxiFlying());
+    // Let normal follow run again when the leader has moved on during a post-combat action delay.
+    if (!reactionInProgress && !isWaiting && aiInternalUpdateDelay > sPlayerbotAIConfig.globalCoolDown &&
+        FollowAction::GetDungeonCatchUpTarget(this))
+        ResetAIInternalUpdateDelay();
+
+    if (!reactionInProgress && CanUpdateAIInternal())
     {
         // Update the delay with the spell cast time
         Spell* currentSpell = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);

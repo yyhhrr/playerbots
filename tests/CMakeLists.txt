@@ -109,6 +109,8 @@ extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values
     "    class LastMovement\n" "    class LastMovementValue" dungeon_last_movement.inc)
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/RangeTriggers.h"
     "    class UpdateFollowTrigger" "    class StopFollowTrigger" dungeon_follow_trigger.inc)
+extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/FollowActions.cpp"
+    "Player* FollowAction::GetDungeonCatchUpTarget(" "bool FollowAction::isUseful(" dungeon_follow_recovery.inc)
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/generic/DungeonSafeStrategy.cpp"
     "void DungeonSafeStrategy::OnStrategyAdded(" "" dungeon_strategy_hooks.inc)
 add_executable(dungeon_motion_test dungeon_motion_test.cpp "${dungeon_source_dir}/DungeonMovement.cpp")
@@ -450,10 +452,11 @@ target_include_directories(enchanting_runtime_test PRIVATE "${CMAKE_CURRENT_SOUR
 target_compile_features(enchanting_runtime_test PRIVATE cxx_std_20)
 add_test(NAME enchanting_runtime COMMAND enchanting_runtime_test)
 
-# Run both production upgrade scorers, including the Item* forwarding overload.
-# Source overrides let the same fixture demonstrate the old enchanted-item bug.
+# Run the production upgrade scorers and automatic equipment eligibility query.
+# Source overrides let the same fixture exercise revisions of those decisions.
 set(ITEM_UPGRADE_WEIGHT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/RandomItemMgr.cpp" CACHE FILEPATH "Item upgrade weight source under test")
 set(ITEM_EXCHANGE_WEIGHT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/QuestItemExchange.cpp" CACHE FILEPATH "Exchange item weight source under test")
+set(ITEM_USAGE_EQUIP_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/ItemUsageValue.cpp" CACHE FILEPATH "Equipment usage query source under test")
 function(extract_item_weight_source source begin_marker end_marker output)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${source}")
     file(READ "${source}" source_text)
@@ -468,6 +471,7 @@ function(extract_item_weight_source source begin_marker end_marker output)
 endfunction()
 extract_item_weight_source("${ITEM_UPGRADE_WEIGHT_SOURCE}" "uint32 RandomItemMgr::ItemStatWeight(Player* player, ItemQualifier& qualifier)" "uint32 RandomItemMgr::CalculateSingleStatWeight(" item_upgrade_weight_source.inc)
 extract_item_weight_source("${ITEM_EXCHANGE_WEIGHT_SOURCE}" "    uint64 ItemWeight(Player* bot, uint32 spec, ItemQualifier& item)" "    struct SlotState" item_exchange_weight_source.inc)
+extract_item_weight_source("${ITEM_USAGE_EQUIP_SOURCE}" "ItemUsage ItemUsageValue::QueryItemUsageForEquip(" "uint32 ItemUsageValue::GetSmallestBagSize(" item_usage_equip_source.inc)
 foreach(weight_variant IN ITEMS classic expansion)
     add_executable(item_upgrade_weight_${weight_variant}_test item_upgrade_weight_test.cpp)
     target_include_directories(item_upgrade_weight_${weight_variant}_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")

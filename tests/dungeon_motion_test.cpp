@@ -61,9 +61,42 @@ namespace ai
 {
     struct Formation
     {
+        WorldPosition location;
         float GetAngle() const { return 0; }
         float GetOffset() const { return 0; }
+        WorldPosition GetLocation() const { return location; }
+        static bool IsNullLocation(const WorldPosition& location) { return !location; }
     };
+    using WorldLocation = WorldPosition;
+
+    class FollowAction : public MovementAction
+    {
+    public:
+        explicit FollowAction(PlayerbotAI* ai) : MovementAction(ai), context(ai->GetAiObjectContext()) {}
+        static Player* GetDungeonCatchUpTarget(PlayerbotAI* ai);
+        bool Execute(Event& event);
+        unsigned nativeFollows = 0;
+
+    private:
+        AiObjectContext* context;
+        bool Follow(Unit* target, float, float)
+        {
+            if (!target)
+                return false;
+            if (dungeon::IsActive(ai))
+                return MoveAlongDungeonPath(WorldPosition(target), dungeon::MovePurpose::Follow);
+            if (bot->motion.type == FOLLOW_MOTION_TYPE)
+                return false;
+            ++nativeFollows;
+            bot->motion.type = FOLLOW_MOTION_TYPE;
+            bot->spline.finalized = false;
+            return true;
+        }
+    };
+#define AI_VALUE(type, name) context->GetValue<type>(name)->Get()
+#include "dungeon_follow_recovery.inc"
+#undef AI_VALUE
+
     struct NotNearMasterTrigger
     {
         PlayerbotAI* ai;
@@ -100,17 +133,25 @@ namespace
     struct Fixture
     {
         Map map;
+        Group group;
         Player bot, master;
         PlayerbotAI ai;
-        MovementAction action;
+        LootObjectStack loot;
+        Formation formation;
+        FollowAction action;
         Fixture() : action(&ai)
         {
             static uint64 guid = 10000;
             bot.guid.value = ++guid; master.guid.value = ++guid;
             bot.map = master.map = &map;
+            bot.group = master.group = &group;
             ai.bot = &bot; ai.master = &master; bot.ai = &ai;
             ai.dungeonCombatStrategy = ai.dungeonNonCombatStrategy = true;
             ai.context.movement.data = &action.state;
+            ai.context.followTarget.data = master.guid;
+            ai.context.loot.data = &loot;
+            ai.context.formation.data = &formation;
+            formation.location = Goal();
             action.bot = &bot;
             dungeonTestPath = {};
             dungeonTestWater = {};
@@ -373,6 +414,96 @@ int main()
         f.ai.dungeonCombatStrategy = true;
         trigger.IsActive();
         Check(trigger.checkInterval == 1, "re-adding the combat strategy restores responsive follow checks in combat");
+    }
+    {
+        Fixture f;
+        f.master.x = 30;
+        f.loot.holdingFollow = true;
+        Check(!FollowAction::GetDungeonCatchUpTarget(&f.ai), "a progressing loot task keeps its existing hold");
+        f.loot.holdingFollow = false;
+        Check(FollowAction::GetDungeonCatchUpTarget(&f.ai) == &f.master,
+            "a stopped follower can catch up once the active loot hold ends");
+        f.bot.spline.finalized = false;
+        Check(!FollowAction::GetDungeonCatchUpTarget(&f.ai), "an active spline does not trigger recovery");
+        f.bot.spline.finalized = true;
+        f.master.x = 8;
+        Check(!FollowAction::GetDungeonCatchUpTarget(&f.ai), "ordinary formation spacing does not trigger recovery");
+        f.master.x = 30;
+        f.ai.followRange = 28;
+        Check(!FollowAction::GetDungeonCatchUpTarget(&f.ai), "the recovery threshold respects a larger configured follow range");
+    }
+    {
+        Fixture f;
+        f.master.x = 30;
+        auto suppressed = [&] { return !FollowAction::GetDungeonCatchUpTarget(&f.ai); };
+        f.bot.combat = true;
+        Check(suppressed(), "recovery does not pull a fighting bot away from combat");
+        f.bot.combat = false;
+        f.ai.state = BotState::BOT_STATE_COMBAT;
+        Check(suppressed(), "recovery waits for the non-combat engine after the native combat flag clears");
+        f.ai.state = BotState::BOT_STATE_NON_COMBAT;
+        f.master.combat = true;
+        Check(suppressed(), "recovery does not take over when the leader is already fighting");
+        f.master.combat = false;
+        f.bot.casting = true;
+        Check(suppressed(), "recovery does not interrupt a cast");
+        f.bot.casting = false;
+        f.bot.teleporting = true;
+        Check(suppressed(), "recovery does not move a teleporting follower");
+        f.bot.teleporting = false;
+        f.master.teleporting = true;
+        Check(suppressed(), "recovery does not chase a teleporting leader");
+        f.master.teleporting = false;
+        Map otherInstance = f.map;
+        ++otherInstance.instance;
+        f.master.map = &otherInstance;
+        Check(suppressed(), "the same map ID in another dungeon instance is not a valid catch-up target");
+        f.master.map = &f.map;
+        f.ai.stayStrategy = true;
+        Check(suppressed(), "explicit stay suppresses catch-up");
+        f.ai.stayStrategy = false;
+        f.ai.guardStrategy = true;
+        Check(suppressed(), "explicit guard suppresses catch-up");
+        f.ai.guardStrategy = false;
+        f.ai.passiveStrategy = true;
+        Check(suppressed(), "explicit passive suppresses catch-up");
+        f.ai.passiveStrategy = false;
+        f.ai.followStrategy = false;
+        Check(suppressed(), "catch-up does not turn on follow for a bot that has it disabled");
+        f.ai.followStrategy = true;
+        f.map.dungeon = false;
+        Check(suppressed(), "ordinary outdoor follow never enters the dungeon recovery path");
+        f.map.dungeon = true;
+        PlayerbotAI leaderAI;
+        f.master.ai = &leaderAI;
+        Check(suppressed(), "a bot leader cannot trigger the player-led catch-up");
+        leaderAI.realPlayer = true;
+        Check(FollowAction::GetDungeonCatchUpTarget(&f.ai) == &f.master,
+            "a human leader with an AI context is still a real player");
+    }
+    {
+        Fixture f;
+        f.master.x = 30;
+        f.formation.location = {};
+        Event event;
+        Check(f.action.Execute(event) && f.bot.motion.launches == 1 && f.action.nativeFollows == 0,
+            "protected catch-up uses a checked path to the leader even if no formation point is available");
+        f.bot.spline.finalized = true;
+        f.master.x = 35;
+        dungeonTestPath.type = PATHFIND_NOPATH;
+        Check(!f.action.Execute(event) && f.bot.motion.launches == 1 && f.action.nativeFollows == 0,
+            "a failed safety check cannot fall back to unchecked native follow");
+    }
+    {
+        Fixture f;
+        f.master.x = 30;
+        f.ai.dungeonNonCombatStrategy = false;
+        f.bot.motion.type = FOLLOW_MOTION_TYPE;
+        Event event;
+        Check(f.action.Execute(event) && f.bot.motion.clears == 1 && f.action.nativeFollows == 1,
+            "a finalized native follow is replaced and resubmitted after the leader moves on");
+        Check(!f.action.Execute(event) && f.bot.motion.clears == 1 && f.action.nativeFollows == 1,
+            "the restarted native follow does not get cleared again while its spline runs");
     }
     std::cout << checks << " dungeon spline checks passed\n";
     return EXIT_SUCCESS;

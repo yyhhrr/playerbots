@@ -437,7 +437,11 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         // normal landing
         if (!fallAfterJump)
         {
+#ifdef MANGOSBOT_ZERO
             bot->m_movementInfo.AddMovementFlag(MOVEFLAG_FALLINGFAR);
+#else
+            bot->m_movementInfo.AddMovementFlag(MOVEFLAG_PENDINGSTOP);
+#endif
 
             WorldPacket stop(MSG_MOVE_STOP);
 #ifdef MANGOSBOT_TWO
@@ -2642,10 +2646,6 @@ void PlayerbotAI::DoNextAction(bool min)
     {
         if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING))
             bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_FLYING);
-#ifdef MANGOSBOT_ONE
-        if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FLYING2))
-            bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_FLYING2);
-#endif
         if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_CAN_FLY))
             bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_CAN_FLY);
         if (bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING))
@@ -9003,21 +9003,10 @@ bool PlayerbotAI::CanMove()
     {
         return false;
     }
-#ifdef MANGOSBOT_ONE
     if (bot->IsFalling())
     {
         return false;
     }
-    if (bot->IsJumping())
-    {
-        return false;
-    }
-#else
-    if (bot->IsFalling())
-    {
-        return false;
-    }
-#endif
 
     MotionMaster& mm = *bot->GetMotionMaster();
     MovementGeneratorType currentMotion = mm.GetCurrentMovementGeneratorType();

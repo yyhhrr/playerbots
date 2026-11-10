@@ -562,6 +562,14 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         return false;
     }
 
+    // The bot can only board on its own map, and the objects of another map
+    // belong to the thread that updates that map: do not read them.
+    if (dockPosition.mapid != bot->GetMapId())
+    {
+        ai->TellDebug(ai->GetMaster(), "Waiting for transport on different map.", "debug move");
+        return false;
+    }
+
     float minDist = 0;
 
     std::string transportName;
@@ -797,7 +805,7 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
 
     TravelPath outMovePath;
 
-    if (needsLongPath && !sTravelNodeMap.getNodes().empty() && !bot->InBattleGround())
+    if (needsLongPath && sTravelNodeMap.hasNodes() && !bot->InBattleGround())
     {
         outMovePath = sTravelNodeMap.getFullPath(startPosition, endPosition, bot); //Pathfind using nodes.
     }
@@ -1548,7 +1556,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
 
         if (startPosition.getMapId() != endPosition.getMapId() || totalDistance > maxDist || (startPosition.getMapId() == 609 && fabs(startPosition.getZ() - endPosition.getZ()) > 20.0f))
         {
-            if (!sTravelNodeMap.getNodes().empty() && !bot->InBattleGround())
+            if (sTravelNodeMap.hasNodes() && !bot->InBattleGround())
             {
                 movePath = sTravelNodeMap.getFullPath(startPosition, endPosition, bot);
 
@@ -1568,6 +1576,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                     // Debug path issues - use TellDebug for debug move
                     if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
                     {
+                        std::shared_lock<std::shared_timed_mutex> nodeLock(sTravelNodeMap.m_nMapMtx);
                         std::vector<TravelNode*> startNodes = sTravelNodeMap.getNodes(startPosition);
                         std::vector<TravelNode*> endNodes = sTravelNodeMap.getNodes(endPosition);
                         std::ostringstream out;
@@ -1599,7 +1608,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                 else if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
                 {
                     std::vector<WorldPosition> beginPath = endPosition.getPathFromPath({startPosition}, bot, 40), endPath;
-                    sTravelNodeMap.m_nMapMtx.lock_shared();
+                    std::shared_lock<std::shared_timed_mutex> nodeLock(sTravelNodeMap.m_nMapMtx);
                     TravelNodeRoute route = sTravelNodeMap.getRoute(startPosition, endPosition, beginPath, endPath, bot);
 
                     std::string routeList = "Route: ";
@@ -1613,8 +1622,6 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                         ai->TellPlayerNoFacing(GetMaster(), routeList);
 
                     route.cleanTempNodes();
-
-                    sTravelNodeMap.m_nMapMtx.unlock_shared();
                 }
             }
             else

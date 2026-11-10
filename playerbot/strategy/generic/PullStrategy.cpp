@@ -258,10 +258,10 @@ float PullMultiplier::GetValue(Action* action)
     return 1.0f;
 }
 
-void PossibleAdsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
+void PossibleAddsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
-        "possible ads",
+        "possible adds",
         NextAction::array(0, new NextAction("flee with pet", ACTION_EMERGENCY), NULL)));
 }
 

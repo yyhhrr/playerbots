@@ -258,72 +258,83 @@ uint8 RandomPlayerbotFactory::GetRandomRace(uint8 cls, Team team)
     return availableRaces[cls].front();
 }
 
-void RandomPlayerbotFactory::RandomizeAppearance(uint8 race, uint8 gender, uint8& skin, uint8& face, uint8& hairStyle, uint8& hairColor, uint8& facialHair)
+bool RandomPlayerbotFactory::RandomizeAppearance(uint8 race, uint8 cls, uint8 gender, uint8& skin, uint8& face, uint8& hairStyle, uint8& hairColor, uint8& facialHair)
 {
-    std::vector<uint8> skinColors, facialHairTypes;
+    // DBC variation IDs are paired with a colour. Face colour is the skin colour.
     std::vector<std::pair<uint8, uint8>> faces, hairs;
-    for (CharSectionsMap::const_iterator itr = sCharSectionMap.begin(); itr != sCharSectionMap.end(); ++itr)
+    std::map<uint8, std::vector<uint8>> facialHairByColor;
+    for (auto const& [key, entry] : sCharSectionMap)
     {
-        CharSectionsEntry const* entry = itr->second;
         if (entry->Race != race || entry->Gender != gender)
             continue;
 
-#ifndef MANGOSBOT_TWO
-        switch (entry->BaseSection)
-        {
-        case SECTION_TYPE_SKIN:
-            skinColors.push_back(entry->ColorIndex);
-            break;
-        case SECTION_TYPE_FACE:
-            faces.push_back(std::pair<uint8, uint8>(entry->VariationIndex, entry->ColorIndex));
-            break;
-        case SECTION_TYPE_FACIAL_HAIR:
-            facialHairTypes.push_back(entry->ColorIndex);
-            break;
-        case SECTION_TYPE_HAIR:
-            hairs.push_back(std::pair<uint8, uint8>(entry->VariationIndex, entry->ColorIndex));
-            break;
-        }
+#ifdef MANGOSBOT_TWO
+        if (!entry->HasFlag(SECTION_FLAG_PLAYABLE))
+            continue;
+        const uint8 color = entry->Color;
 #else
+        if (entry->HasFlag(SECTION_FLAG_UNAVAILABLE))
+            continue;
+        const uint8 color = entry->ColorIndex;
+#endif
+        const uint8 variation = entry->VariationIndex;
         switch (entry->BaseSection)
         {
-        case SECTION_TYPE_SKIN:
-            skinColors.push_back(entry->Color);
-            break;
         case SECTION_TYPE_FACE:
-            faces.push_back(std::pair<uint8, uint8>(entry->VariationIndex, entry->Color));
+            faces.emplace_back(variation, color);
             break;
         case SECTION_TYPE_FACIAL_HAIR:
-            facialHairTypes.push_back(entry->Color);
+            facialHairByColor[color].push_back(variation);
             break;
         case SECTION_TYPE_HAIR:
-            hairs.push_back(std::pair<uint8, uint8>(entry->VariationIndex, entry->Color));
+            hairs.emplace_back(variation, color);
             break;
         }
-#endif
     }
 
-    // Keep the caller's defaults if the race/gender has no sections to pick from.
-    if (skinColors.empty() || faces.empty() || hairs.empty())
-        return;
-
-    std::pair<uint8, uint8> faceEntry = faces[urand(0, faces.size() - 1)];
-    std::pair<uint8, uint8> hairEntry = hairs[urand(0, hairs.size() - 1)];
-
-    // A face entry carries the skin colour it must be paired with, so use that
-    // (an independently picked skin colour could form an invalid combination).
-    skin = faceEntry.second;
-    face = faceEntry.first;
-    hairStyle = hairEntry.first;
-    hairColor = hairEntry.second;
-
-    bool excludeCheck = (race == RACE_TAUREN) || (gender == GENDER_FEMALE && race != RACE_NIGHTELF && race != RACE_UNDEAD);
-#ifndef MANGOSBOT_TWO
-    facialHair = (excludeCheck || facialHairTypes.empty()) ? 0 : facialHairTypes[urand(0, facialHairTypes.size() - 1)];
+    auto isValid = [&](uint8 skinColor, uint8 faceId, uint8 style, uint8 color, uint8 facialStyle)
+    {
+#ifdef MANGOS
+        return Player::ValidateAppearance(race, gender, style, color, faceId, facialStyle, skinColor);
 #else
-    (void)facialHairTypes;
-    facialHair = 0;
+        return Player::ValidateAppearance(race, cls, gender, style, color, faceId, facialStyle, skinColor, true);
 #endif
+    };
+
+    auto& rng = *GetRandomGenerator();
+    std::shuffle(faces.begin(), faces.end(), rng);
+    std::shuffle(hairs.begin(), hairs.end(), rng);
+    for (auto& [color, styles] : facialHairByColor)
+    {
+        std::shuffle(styles.begin(), styles.end(), rng);
+        // Some race/gender combinations have a default style but no usable facial-hair section.
+        if (std::find(styles.begin(), styles.end(), 0) == styles.end())
+            styles.push_back(0);
+    }
+
+    const std::vector<uint8> defaultStyles{0};
+    for (auto const& [faceId, skinColor] : faces)
+    {
+        for (auto const& [style, color] : hairs)
+        {
+            auto itr = facialHairByColor.find(color);
+            auto const& styles = itr != facialHairByColor.end() ? itr->second : defaultStyles;
+            for (uint8 facialStyle : styles)
+            {
+                if (!isValid(skinColor, faceId, style, color, facialStyle))
+                    continue;
+
+                skin = skinColor;
+                face = faceId;
+                hairStyle = style;
+                hairColor = color;
+                facialHair = facialStyle;
+                return true;
+            }
+        }
+    }
+
+    return isValid(skin, face, hairStyle, hairColor, facialHair);
 }
 
 bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
@@ -336,6 +347,13 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
     uint8 gender = urand(0, 1) ? GENDER_MALE : GENDER_FEMALE;
 
     uint8 race = inputRace == 0 ? GetRandomRace(cls) : inputRace;
+
+    uint8 skin = 0, face = 0, hairStyle = 0, hairColor = 0, facialHair = 0;
+    if (!RandomizeAppearance(race, cls, gender, skin, face, hairStyle, hairColor, facialHair))
+    {
+        sLog.outError("Unable to select an appearance for random bot race %u, gender %u", uint32(race), uint32(gender));
+        return false;
+    }
 
     NameRaceAndGender raceAndGender = CombineRaceAndGender(gender, race);
 
@@ -361,9 +379,6 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
     if (name.empty())
         return false;
 
-    uint8 skin = 0, face = 0, hairStyle = 0, hairColor = 0, facialHair = 0;
-    RandomizeAppearance(race, gender, skin, face, hairStyle, hairColor, facialHair);
-
     WorldSession* session = new WorldSession(accountId, NULL, SEC_PLAYER,
 
 #ifdef MANGOSBOT_TWO
@@ -384,12 +399,8 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
         sLog.outError("BOTS: Unable to create session or player for random acc %d - name: \"%s\"; race: %u; class: %u", accountId, name.c_str(), race, cls);
         return false;
     }
-	if (!player->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race, cls, gender,
-	        skin, // skinColor,
-	        face,
-	        hairStyle,
-	        hairColor,
-	        facialHair, 0))
+    if (!player->Create(sObjectMgr.GeneratePlayerLowGuid(), name, race, cls, gender,
+                        skin, face, hairStyle, hairColor, facialHair, 0))
     {
         player->DeleteFromDB(player->GetObjectGuid(), accountId, true, true);
         delete session;

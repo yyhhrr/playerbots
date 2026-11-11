@@ -1983,14 +1983,17 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
         race = factory.GetRandomRace(cls, team);
     }
 
+    if (!RandomPlayerbotFactory::RandomizeAppearance(race, cls, gender, skin, face, hairStyle, hairColor, facialHair))
+    {
+        messages.push_back("No valid appearance for this race and gender");
+        return;
+    }
+
     if (name.empty())
     {
         RandomPlayerbotFactory::NameRaceAndGender raceAndGender = RandomPlayerbotFactory::CombineRaceAndGender(gender, race);
         name = RandomPlayerbotFactory::CreateRandomBotName(raceAndGender);
     }
-
-    // Randomize appearance (skin/face/hair) so same-race/gender bots don't all look alike.
-    RandomPlayerbotFactory::RandomizeAppearance(race, gender, skin, face, hairStyle, hairColor, facialHair);
 
     WorldSession* botSession = new WorldSession(accountId, NULL, SEC_PLAYER,
 #ifdef MANGOSBOT_TWO

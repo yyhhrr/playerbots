@@ -9041,7 +9041,15 @@ void PlayerbotAI::StopMoving()
     if (bot->IsBeingTeleportedFar())
         return;
 
-    if (bot->GetTransport())
+    const bool onTransport = bot->GetTransport() != nullptr;
+    const bool airborne = bot->IsFlying() || bot->IsFreeFlying() || IsJumping() || bot->IsFalling() ||
+        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FALLINGFAR) ||
+        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_HOVER) ||
+        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING);
+    const bool canSnapToGround = !onTransport && !airborne && !bot->IsBeingTeleportedNear() &&
+        !bot->m_movementInfo.HasMovementFlag(MOVEFLAG_SWIMMING) && !bot->IsInWater() && !sServerFacade.IsUnderwater(bot);
+
+    if (onTransport)
         bot->m_movementInfo.SetMovementFlags(MOVEFLAG_ONTRANSPORT);
     else
     {
@@ -9057,17 +9065,18 @@ void PlayerbotAI::StopMoving()
 
     Position pos = bot->GetPosition();
 
-    bool airborne = bot->IsFlying() || bot->IsFreeFlying() || IsJumping() || bot->IsFalling() ||
-        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_FALLINGFAR) ||
-        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_HOVER) ||
-        bot->m_movementInfo.HasMovementFlag(MOVEFLAG_LEVITATING);
-
-    if (!bot->GetTransport() && !airborne && !bot->IsInWater() && !sServerFacade.IsUnderwater(bot))
+    if (canSnapToGround)
     {
+        constexpr float minGroundCorrection = 0.1f;
+        constexpr float maxGroundCorrection = 0.5f;
         float groundZ = pos.z;
-        bot->UpdateAllowedPositionZ(pos.x, pos.y, pos.z);
-        if (fabs(pos.z - groundZ) > 0.1f)
+        bot->UpdateAllowedPositionZ(pos.x, pos.y, groundZ);
+        const float correction = std::fabs(groundZ - pos.z);
+        if (correction > minGroundCorrection && correction <= maxGroundCorrection)
+        {
+            pos.z = groundZ;
             bot->Relocate(pos.x, pos.y, pos.z, pos.o);
+        }
     }
 
     MovementInfo mInfo = bot->m_movementInfo;

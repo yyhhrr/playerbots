@@ -80,6 +80,7 @@ namespace ai
         PlayerbotAI* ai;
         Value<LootObjectStack*> available;
         Value<uint8> bagSpace;
+        Value<float> lootRange;
         std::map<std::string, Value<std::list<ObjectGuid>>> lists;
         std::map<std::string, std::function<Trigger*(PlayerbotAI*)>> creators;
         std::map<std::string, std::unique_ptr<Trigger>> created;
@@ -91,6 +92,7 @@ namespace ai
             else if constexpr (std::is_same_v<T, uint8>) return &bagSpace;
             else return &lists[name];
         }
+        template<class T> Value<T>* GetValue(const std::string&, const std::string&) { return &lootRange; }
     };
     struct ChatHelper
     {
@@ -265,6 +267,7 @@ namespace ai
 }
 using namespace ai;
 #define AI_VALUE(type, name) context->GetValue<type>(name)->Get()
+#define AI_VALUE2(type, name, qualifier) context->GetValue<type>(name, qualifier)->Get()
 #include "loot_master_scan.inc"
 #include "loot_master_admission.inc"
 
@@ -315,6 +318,8 @@ namespace
         { Fixture f; f.corpse.empty = true; Check(!f.Scan(), "empty loot rejected"); }
         { Fixture f; f.corpse.valid = false; Check(!f.Scan(), "missing object rejected"); }
         { Fixture f; f.corpse.x = 11; Check(!f.Scan(), "active-master follower distance remains ten yards"); }
+        { Fixture f; f.corpse.x = 11; f.ai.context.lootRange.value = 12; Check(f.Scan(), "explicit range can extend follower loot admission"); }
+        { Fixture f; f.ai.context.lootRange.value = 2; Check(!f.Scan(), "explicit range can shorten follower loot admission"); }
         { Fixture f; f.ai.activeMaster = false; f.corpse.x = 14; Check(f.Scan(), "ordinary follower uses fifteen-yard range"); }
         { Fixture f; f.ai.activeMaster = false; f.corpse.x = 16; Check(!f.Scan(), "ordinary follower limit remains enforced"); }
         { Fixture f; f.ai.leader = true; f.corpse.x = 24; Check(f.Scan(), "leader keeps twenty-five-yard range"); }

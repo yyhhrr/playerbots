@@ -156,6 +156,7 @@ struct LootObjectStack
     ObjectGuid selected, active, pending;
     std::map<ObjectGuid, uint32> deferred;
     unsigned starts = 0, completed = 0, failures = 0;
+    float selectionRange = 0.0f;
     bool StartLoot(ObjectGuid id) { ++starts; if(deferred.count(id)) return false; active = id; return true; }
     void CompleteLoot(ObjectGuid id) { ++completed; if(active == id) active = {}; if(pending == id) pending = {}; }
     void DeferLoot(ObjectGuid id, uint32 delayMs = 5000)
@@ -163,7 +164,7 @@ struct LootObjectStack
     void MarkLootOpened(ObjectGuid id) { pending = id; }
     bool IsLootOpening(ObjectGuid id = {}) const { return pending.value && (!id.value || pending == id); }
     bool IsDeferred(ObjectGuid id) const { return deferred.count(id); }
-    LootObject GetLoot(float) const { return LootObject(selected); }
+    LootObject GetLoot(float range) { selectionRange = range; return LootObject(selected); }
     void Remove(ObjectGuid) {}
 };
 template<class T> struct Value
@@ -203,6 +204,7 @@ struct PlayerbotAI
     WorldObject* freeMoveTarget = nullptr;
     explicit PlayerbotAI(Player* bot) : bot(bot) { bot->ai = this; }
     bool HasStrategy(const std::string&, BotState) const { return false; }
+    float GetRange(const std::string& type);
     WorldObject* GetWorldObject(ObjectGuid id) const
     { auto it = objects.find(id); return it == objects.end() ? nullptr : it->second; }
     Player* GetMaster() const { return master; }
@@ -228,6 +230,11 @@ struct Config
     float lootDistance = 25, sightDistance = 60, contactDistance = 0.5f;
     template<class... T> void logEvent(T&&...) {}
 } sPlayerbotAIConfig;
+float PlayerbotAI::GetRange(const std::string& type)
+{
+    const float range = context.GetValue<float>("range", type)->Get();
+    return std::abs(range) >= 0.1f ? range : sPlayerbotAIConfig.lootDistance;
+}
 struct ServerFacade
 {
     bool los = true;
@@ -397,6 +404,12 @@ int main()
         Fixture f; LootAction select(&f.ai);
         Check(select.Execute(f.event), "selection starts a loot task");
         Check(f.stack.active==f.corpse.guid, "selected corpse is held for the approach");
+        Check(f.stack.selectionRange == sPlayerbotAIConfig.lootDistance, "selection uses the default loot range when unset");
+    }
+    {
+        Fixture f; LootAction select(&f.ai);
+        f.ai.context.GetValue<float>("range", "loot")->Set(40.0f);
+        Check(select.Execute(f.event) && f.stack.selectionRange == 40.0f, "selection passes the explicit per-bot loot range");
     }
     {
         Fixture f; MoveToLootAction move(&f.ai); f.bot.x=8;

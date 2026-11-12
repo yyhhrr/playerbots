@@ -609,6 +609,10 @@ bool LootObjectStack::ShouldHoldFollow()
             allowedRange = ai->HasActivePlayerMaster() ? sPlayerbotAIConfig.groupMemberLootDistanceWithActiveMaster :
                 sPlayerbotAIConfig.groupMemberLootDistance;
 
+        const float customLootDistance = context->GetValue<float>("range", "loot")->Get();
+        if (customLootDistance >= 0.1f)
+            allowedRange = customLootDistance;
+
         if (anchor->GetMapId() != bot->GetMapId() || anchor->GetInstanceId() != bot->GetInstanceId() ||
             anchor->GetTransport() != bot->GetTransport() || anchor->IsTaxiFlying() ||
             anchor->IsFlying() != bot->IsFlying() ||

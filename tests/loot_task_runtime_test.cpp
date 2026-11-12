@@ -329,6 +329,12 @@ int main()
         Check(!f.stack.ShouldHoldFollow(), "a master leaving the admitted loot area makes bots follow promptly");
     }
     {
+        Fixture f; f.master.x = -8; f.context.distance.value = 20.0f; f.Begin();
+        Check(f.stack.ShouldHoldFollow(), "explicit longer loot range retains the admitted task");
+        f.context.distance.value = 3.0f;
+        Check(!f.stack.ShouldHoldFollow() && f.stack.IsDeferred(100), "shortening the explicit loot range releases follow hold");
+    }
+    {
         Fixture f; f.Begin(); f.bot.x = 100;
         Check(!f.stack.ShouldHoldFollow(), "emergency separation takes priority over looting");
     }

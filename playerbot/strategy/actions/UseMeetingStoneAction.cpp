@@ -97,9 +97,25 @@ void SummonAction::QueueDirectSummon(ObjectGuid botGuid, ObjectGuid requesterGui
             return;
         }
 
+        // Check and charge on the same world-thread callback as the transfer.
+        const WorldSession* requesterSession = requester->GetSession();
+        const bool chargeSummon = requesterSession && requester->isRealPlayer() && requesterSession->GetSecurity() <= SEC_PLAYER;
+        const uint32 summonCost = chargeSummon ? sPlayerbotAIConfig.botSummonCost : 0;
+        if (summonCost && requester->GetMoney() < summonCost)
+        {
+            targetAI->TellPlayerNoFacing(requester, "You need " + ChatHelper::formatMoney(summonCost) + " to summon me.");
+            return;
+        }
+
         SummonAction action(targetAI);
         if (!action.DirectSummon(requester))
+        {
             targetAI->TellPlayerNoFacing(requester, "Summon failed: could not reach your map and position.");
+            return;
+        }
+
+        if (summonCost)
+            requester->ModifyMoney(-static_cast<int32>(summonCost));
     });
 }
 

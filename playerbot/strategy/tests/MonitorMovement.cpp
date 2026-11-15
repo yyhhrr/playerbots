@@ -177,7 +177,7 @@ bool MonitorMovementCanNotReachNodes::IsConditionMet(const std::string& monitorS
     bool riding = bot->GetTransport() || pos.currentHeight() > 5.0f;
     if (!riding)
     {
-        for (GenericTransport* transport : pos.getTransports())
+        for (GenericTransport* transport : WorldPosition::getTransports(*bot->GetMap()))
         {
             if (pos.isOnTransport(transport))
             {

@@ -769,7 +769,7 @@ void RandomPlayerbotMgr::LogPlayerLocation()
         sPlayerbotAIConfig.openLog("transport.csv", "w");
         for (auto& [mapId, map] : sMapMgr.Maps())
         {
-            for (auto& transport : WorldPosition(map->GetId(), 1, 1).getTransports())
+            for (auto& transport : WorldPosition::getTransports(*map))
             {
                 std::ostringstream out;
                 out << sPlayerbotAIConfig.GetTimestampStr() << "+00,";

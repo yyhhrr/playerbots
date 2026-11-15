@@ -574,7 +574,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
     std::string transportName;
 
-    for (auto& trans : dockPosition.getTransports(entry))
+    for (auto& trans : WorldPosition::getTransports(*bot->GetMap(), entry))
     {
         float distance = dockDistanceSq(trans);
 
@@ -590,7 +590,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
             transportName = data->name;
     }
 
-    if (transport && dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+    if (transport && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
     {
         MoveOnTransport(ai, transport, doTeleport);
 

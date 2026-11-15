@@ -1602,7 +1602,7 @@ bool DebugAction::HandleTransport(Event& event, Player* requester, const std::st
 {
     std::vector<GenericTransport*> transports;
 
-    for (auto trans : WorldPosition(bot).getTransports())
+    for (auto trans : WorldPosition::getTransports(*bot->GetMap()))
         transports.push_back(trans);
 
     WorldPosition botPos(bot);
@@ -1652,7 +1652,7 @@ bool DebugAction::HandlePointOnTrans(Event& event, Player* requester, const std:
     //Get transport
     std::vector<GenericTransport*> transports;
 
-    for (auto trans : WorldPosition(bot).getTransports())
+    for (auto trans : WorldPosition::getTransports(*bot->GetMap()))
         transports.push_back(trans);
 
     WorldPosition botPos(bot);
@@ -1788,7 +1788,7 @@ bool DebugAction::HandleDoTransport(Event& event, Player* requester, const std::
     uint32 entry = 0;
     float distance = FLT_MAX;
 
-    for (auto trans : botPos.getTransports())
+    for (auto trans : WorldPosition::getTransports(*bot->GetMap()))
     {
         float dist = botPos.distance(trans);
 
@@ -1819,7 +1819,7 @@ bool DebugAction::HandleOnTrans(Event& event, Player* requester, const std::stri
     float distance = FLT_MAX;
 
     GenericTransport* transport = nullptr;
-    for (auto trans : botPos.getTransports())
+    for (auto trans : WorldPosition::getTransports(*bot->GetMap()))
     {
         float dist = botPos.distance(trans);
         if (dist < distance)
@@ -1951,7 +1951,7 @@ bool DebugAction::HandlePathable(Event& event, Player* requester, const std::str
         radius = stoi(text.substr(std::string("pathable").size() + 1));
 
     GenericTransport* transport = nullptr;
-    for (auto trans : WorldPosition(bot).getTransports(bot->GetInstanceId()))
+    for (auto trans : WorldPosition::getTransports(*bot->GetMap()))
         if (!transport || WorldPosition(bot).distance(trans) < WorldPosition(bot).distance(transport))
             transport = trans;
 
@@ -6000,7 +6000,7 @@ bool DebugAction::HandleTransanal(Event& event, Player* requester, const std::st
 
     for (auto& [mapId, map] : sMapMgr.Maps())
     {
-        for (auto& transport : WorldPosition(map->GetId(), 1, 1).getTransports())
+        for (auto& transport : WorldPosition::getTransports(*map))
         {
             std::string transportName = transport->GetName();
             GameObjectInfo const* data = sGOStorage.LookupEntry<GameObjectInfo>(transport->GetEntry());

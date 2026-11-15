@@ -559,19 +559,44 @@ bool WorldPosition::HasFaction(const Team team) const
     return false;
 }
 
-std::set<GenericTransport*> WorldPosition::getTransports(uint32 entry)
+namespace
+{
+    struct LoadedElevatorCollector
+    {
+        uint32 entry;
+        std::set<GenericTransport*>& transports;
+
+        void Visit(GameObjectMapType& objects)
+        {
+            for (auto& ref : objects)
+            {
+                GameObject* go = ref.getSource();
+                if (go->GetGoType() != GAMEOBJECT_TYPE_TRANSPORT || !go->GetDbGuid() || (entry && go->GetEntry() != entry))
+                    continue;
+
+                if (auto* transport = dynamic_cast<GenericTransport*>(go))
+                    transports.insert(transport);
+            }
+        }
+
+        template<class T> void Visit(T&) {}
+    };
+}
+
+std::set<GenericTransport*> WorldPosition::getTransports(Map& map, uint32 entry)
 {
     std::set<GenericTransport*> transports;
-    for (auto transport : getMap(getFirstInstanceId())->GetTransports()) //Boats&Zeppelins.
+    for (auto transport : map.GetTransports()) // Boats and zeppelins.
         if (!entry || transport->GetEntry() == entry)
             transports.insert(transport);
 
-    if (transports.empty() || !entry) //Elevators&rams
+    if (transports.empty() || !entry)
     {
-        for (auto gopair : getGameObjectsNear(0.0f, entry))
-            if (GameObject* go = getMap(getFirstInstanceId())->GetGameObject(gopair->first))
-                if (GenericTransport* transport = dynamic_cast<GenericTransport*>(go))
-                    transports.insert(transport);
+        // Scan only loaded grid objects. The map owns these elevators.
+        LoadedElevatorCollector collector{entry, transports};
+        TypeContainerVisitor<LoadedElevatorCollector, GridTypeMapContainer> visitor(collector);
+        for (auto grid = map.begin(); grid != map.end(); ++grid)
+            grid->getSource()->Visit(visitor);
     }
 
     return transports;

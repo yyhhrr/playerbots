@@ -2402,6 +2402,7 @@ void PlayerbotAI::ChangeEngine(BotState type)
                 out << t->GetName();
             out << ",";
             WorldPosition(bot).printWKT(out);
+            out << sPlayerbotAIConfig.LocationColumns(bot);
 
             sPlayerbotAIConfig.log("bot_states.csv", out.str().c_str());
         }

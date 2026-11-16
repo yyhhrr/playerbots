@@ -180,6 +180,16 @@ namespace ai
             }
         };
 
+#ifdef MANGOSBOT_ZERO
+        class WarriorReachMeleeAction : public ReachTargetAction
+        {
+        public:
+            WarriorReachMeleeAction(PlayerbotAI* ai) : ReachTargetAction(ai, "warrior reach melee") {}
+            // The approach can start an attack, so honor the tank's pull delay.
+            ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_SINGLE; }
+        };
+#endif
+
         class AiObjectContextInternal : public NamedObjectContext<Action>
         {
         public:
@@ -188,6 +198,9 @@ namespace ai
                 creators["devastate"] = [](PlayerbotAI* ai) { return new CastDevastateAction(ai); };
                 creators["overpower"] = [](PlayerbotAI* ai) { return new CastOverpowerAction(ai); };
                 creators["charge"] = [](PlayerbotAI* ai) { return new CastChargeAction(ai); };
+#ifdef MANGOSBOT_ZERO
+                creators["warrior reach melee"] = [](PlayerbotAI* ai) { return new WarriorReachMeleeAction(ai); };
+#endif
                 creators["bloodthirst"] = [](PlayerbotAI* ai) { return new CastBloodthirstAction(ai); };
                 creators["rend"] = [](PlayerbotAI* ai) { return new CastRendAction(ai); };
                 creators["rend on attacker"] = [](PlayerbotAI* ai) { return new CastRendOnAttackerAction(ai); };

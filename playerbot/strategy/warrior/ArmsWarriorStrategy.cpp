@@ -59,7 +59,7 @@ void ArmsWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "enemy out of melee",
-        NextAction::array(0, new NextAction("charge", ACTION_MOVE + 1), NULL)));
+        NextAction::array(0, new NextAction("charge", ACTION_MOVE + 1), new NextAction("warrior reach melee", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "target critical health",

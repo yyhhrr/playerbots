@@ -16,6 +16,7 @@ namespace ai
         bool IsEmpty() { return !guid; }
         bool IsLootPossible(Player* bot);
         bool IsWithinLootDistance(Player* bot);
+        static bool IsReadyForSkinning(const Creature& creature);
         void Refresh(Player* bot, ObjectGuid guid, bool debug = false);
         WorldObject* GetWorldObject(Player* bot);
         ObjectGuid guid;

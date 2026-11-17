@@ -63,16 +63,7 @@ void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
     Creature* creature = ai->GetCreature(guid);
     if (creature && sServerFacade.GetDeathState(creature) == CORPSE)
     {
-        if (creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
-        {
-            if (debug)
-                ai->TellDebug(ai->GetMaster(), "Creature flag lootable.", "debug loot");
-
-            this->guid = guid;
-        }
-
-        if (creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE) &&
-            !creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
+        if (IsReadyForSkinning(*creature))
         {
             skillId = creature->GetCreatureInfo()->GetRequiredLootSkill();
             uint32 targetLevel = creature->GetLevel();
@@ -84,8 +75,16 @@ void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
                 this->guid = guid;
             }
 
-            if (debug)
+            else if (debug)
                 ai->TellDebug(ai->GetMaster(), "Creature flag skinnable not enough skill.", "debug loot");
+            return;
+        }
+
+        if (creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
+        {
+            if (debug)
+                ai->TellDebug(ai->GetMaster(), "Creature flag lootable.", "debug loot");
+            this->guid = guid;
             return;
         }
 
@@ -259,12 +258,9 @@ bool LootObject::IsLootPossible(Player* bot)
     if (guid.IsCreature())
     {
         Creature* creature = ai->GetCreature(guid);
-        if (creature && sServerFacade.GetDeathState(creature) == CORPSE)
-        {
-            if (creature->m_loot && skillId != SKILL_SKINNING)
-                if (!creature->m_loot->CanLoot(bot))
-                    return false;
-        }
+        if (creature && sServerFacade.GetDeathState(creature) == CORPSE &&
+            creature->m_loot && !IsReadyForSkinning(*creature) && !creature->m_loot->CanLoot(bot))
+            return false;
     }
 
     AiObjectContext* context = ai->GetAiObjectContext();
@@ -350,6 +346,19 @@ bool LootObject::IsWithinLootDistance(Player* bot)
     const float dx = bot->GetPositionX() - object->GetPositionX();
     const float dy = bot->GetPositionY() - object->GetPositionY();
     return dx * dx + dy * dy <= INTERACTION_DISTANCE * INTERACTION_DISTANCE;
+}
+
+bool LootObject::IsReadyForSkinning(const Creature& creature)
+{
+    if (!creature.HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE))
+        return false;
+
+#ifdef MANGOSBOT_ZERO
+    // Classic can retain LOOTABLE after the last ordinary item has been taken.
+    return creature.GetLootStatus() == CREATURE_LOOT_STATUS_LOOTED;
+#else
+    return !creature.HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE);
+#endif
 }
 
 bool LootObjectStack::Add(ObjectGuid guid)

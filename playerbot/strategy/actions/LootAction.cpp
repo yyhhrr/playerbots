@@ -101,8 +101,9 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
         return false;
 
     Creature* creature = ai->GetCreature(lootObject.guid);
+    const bool readyForSkinning = creature && LootObject::IsReadyForSkinning(*creature);
     // Ordinary loot must be collected before attempting profession extraction.
-    if (creature && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
+    if (creature && !readyForSkinning && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
     {
         if (!lootObject.IsLootPossible(bot)) //Clear loot if bot can't loot it.
             return true;
@@ -125,11 +126,15 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
 
     if (creature)
     {
-        SkillType skill = creature->GetCreatureInfo()->GetRequiredLootSkill();
-        if (!CanOpenLock(skill, lootObject.reqSkillValue))
+        if (!readyForSkinning)
             return false;
 
-        switch (skill)
+        // Another looter may have cleared the corpse after this target was selected.
+        LootObject skinningLoot(bot, lootObject.guid);
+        if (!skinningLoot.IsLootPossible(bot))
+            return false;
+
+        switch (skinningLoot.skillId)
         {
         case SKILL_ENGINEERING:
             return ai->HasSkill(SKILL_ENGINEERING) ? ai->CastSpell(ENGINEERING, creature) : false;

@@ -16,6 +16,7 @@ constexpr uint32 SKILL_NONE = 0, SKILL_SKINNING = 1;
 constexpr uint32 UNIT_DYNAMIC_FLAGS = 1, UNIT_FIELD_FLAGS = 2;
 constexpr uint32 UNIT_DYNFLAG_LOOTABLE = 1, UNIT_FLAG_SKINNABLE = 2;
 constexpr unsigned CORPSE = 1;
+enum CreatureLootStatus { CREATURE_LOOT_STATUS_LOOTABLE, CREATURE_LOOT_STATUS_LOOTED };
 struct ObjectGuid
 {
     std::uint64_t raw = 0;
@@ -62,12 +63,14 @@ struct Creature : WorldObject
 {
     bool lootable = true, skinnable = false;
     unsigned deathState = CORPSE;
+    CreatureLootStatus lootStatus = CREATURE_LOOT_STATUS_LOOTABLE;
     CreatureInfo info;
     bool HasFlag(uint32 field, uint32 flag) const
     {
         return field == UNIT_DYNAMIC_FLAGS && flag == UNIT_DYNFLAG_LOOTABLE ? lootable :
             field == UNIT_FIELD_FLAGS && flag == UNIT_FLAG_SKINNABLE && skinnable;
     }
+    CreatureLootStatus GetLootStatus() const { return lootStatus; }
     const CreatureInfo* GetCreatureInfo() const { return &info; }
     uint32 GetLevel() const { return 30; }
 };
@@ -403,17 +406,20 @@ int main()
     {
         Fixture f; Creature creature; creature.guid = 100; creature.x = 8;
         creature.lootable = true; creature.skinnable = true; world[100] = &creature;
+        f.ai.knowsSkill = true;
         LootObject normal(&f.bot, 100);
         Check(normal.guid == ObjectGuid(100) && normal.skillId == SKILL_NONE,
-            "LOOTABLE plus SKINNABLE corpse first exposes normal loot without requiring skinning");
-        creature.lootable = false;
+            "normal loot takes priority over skinning before the corpse is fully looted");
+        creature.lootStatus = CREATURE_LOOT_STATUS_LOOTED;
+        f.ai.knowsSkill = false;
         LootObject unskilled(&f.bot, 100);
         Check(unskilled.IsEmpty(), "skin-only corpse still requires the profession");
         f.ai.knowsSkill = true;
         LootObject skilled(&f.bot, 100);
         Check(skilled.guid == ObjectGuid(100) && skilled.skillId == SKILL_SKINNING,
-            "skilled bot can gather after ordinary loot is gone");
-        creature.lootable = true; creature.skinnable = false; f.ai.knowsSkill = false;
+            "skilled bot can gather after ordinary loot is gone even if LOOTABLE stays set");
+        creature.lootStatus = CREATURE_LOOT_STATUS_LOOTABLE;
+        creature.skinnable = false; f.ai.knowsSkill = false;
         LootObject ordinary(&f.bot, 100);
         Check(ordinary.guid == ObjectGuid(100) && ordinary.skillId == SKILL_NONE,
             "ordinary corpse remains available without a gathering profession");

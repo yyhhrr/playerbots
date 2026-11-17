@@ -28,7 +28,9 @@ struct ObjectGuid
 };
 constexpr float INTERACTION_DISTANCE = 5.0f;
 constexpr uint8 LOOT_SLOT_NORMAL = 0, LOOT_SLOT_VIEW = 1, LOOT_SLOT_MASTER = 2, LOOT_SLOT_OWNER = 3;
-constexpr uint8 MAX_LOOT_SLOT_TYPE = 7, LOOT_SKINNING = 6;
+constexpr uint8 MAX_LOOT_SLOT_TYPE = 7;
+constexpr uint8 LOOT_CORPSE = 1, LOOT_SKINNING = 6;
+constexpr uint8 CLIENT_LOOT_CORPSE = 1, CLIENT_LOOT_PICKPOCKETING = 2;
 constexpr uint32 CMSG_LOOT_RELEASE = 1, CMSG_LOOT_MONEY = 2, CMSG_AUTOSTORE_LOOT_ITEM = 3;
 constexpr uint32 ITEM_QUALITY_NORMAL = 1, ITEM_QUALITY_RARE = 3;
 constexpr uint32 TEXTEMOTE_CHEER = 1;
@@ -64,10 +66,12 @@ struct LootItem
 struct Loot
 {
     uint32 gold = 0;
+    uint8 type = LOOT_CORPSE;
     std::map<uint8, LootItem> items;
     LootItem* GetLootItemInSlot(uint8 slot)
     { auto it = items.find(slot); return it == items.end() ? nullptr : &it->second; }
     uint32 GetGoldAmount() const { return gold; }
+    uint8 GetLootType() const { return type; }
 };
 struct WorldPacket
 {
@@ -339,11 +343,12 @@ struct Fixture
             ai.context.GetValue<uint32>("stack space for item", id)->Set(100);
         }
     }
-    void PreparePacket(uint32 gold, const std::vector<std::pair<uint8,LootItem>>& entries)
+    void PreparePacket(uint32 gold, const std::vector<std::pair<uint8,LootItem>>& entries,
+        uint8 clientLootType = CLIENT_LOOT_CORPSE)
     {
         loot.gold = gold;
         event.packet = WorldPacket();
-        event.packet << corpse.guid << uint8(1) << gold << uint8(entries.size());
+        event.packet << corpse.guid << clientLootType << gold << uint8(entries.size());
         for(const auto& [index,item] : entries)
         {
             loot.items[index] = item;
@@ -492,6 +497,19 @@ int main()
         Check(store.Execute(f.event) && f.bot.session.stores==0 && f.stack.failures==1, "item filters still prevent inventory requests");
         Fixture g;g.PreparePacket(0,{{0,LootItem{1,2}}});g.ai.context.GetValue<uint32>("stack space for item",1)->Set(1);StoreLootAction full(&g.ai);
         Check(full.Execute(g.event) && g.bot.session.stores==0 && g.stack.failures==1, "insufficient stack space cannot become a successful attempt");
+    }
+    {
+        Fixture f;
+        f.loot.type = LOOT_SKINNING;
+        f.PreparePacket(0, {{0, LootItem{99, 1}}, {1, LootItem{1, 2}}, {2, LootItem{2, 1}}},
+            CLIENT_LOOT_PICKPOCKETING);
+        f.ai.context.GetValue<uint32>("stack space for item", 1)->Set(1);
+        f.loot.items[2].slotType = LOOT_SLOT_MASTER;
+        StoreLootAction store(&f.ai);
+        Check(store.Execute(f.event) && f.bot.GetItemCount(99) == 1 && f.stack.completed == 1,
+            "native skinning loot bypasses the item filter even with the client pickpocketing type");
+        Check(f.bot.session.stores == 1,
+            "skinning loot still checks both bag capacity and live slot permissions");
     }
     {
         Fixture f;f.PreparePacket(5,{});f.bot.session.acceptMoney=false;StoreLootAction store(&f.ai);

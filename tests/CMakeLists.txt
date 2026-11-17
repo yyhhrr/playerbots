@@ -566,6 +566,7 @@ extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack
 add_executable(loot_task_runtime_test loot_task_runtime_test.cpp)
 target_include_directories(loot_task_runtime_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_features(loot_task_runtime_test PRIVATE cxx_std_20)
+target_compile_definitions(loot_task_runtime_test PRIVATE MANGOSBOT_ZERO)
 add_test(NAME loot_task_runtime COMMAND loot_task_runtime_test)
 
 extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/LootValues.cpp"
@@ -581,7 +582,7 @@ foreach(loot_variant IN ITEMS classic expansion)
 endforeach()
 
 extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/LootObjectStack.cpp"
-    "bool LootObject::IsWithinLootDistance(Player* bot)" "bool LootObjectStack::Add(ObjectGuid guid)" loot_flow_distance.inc)
+    "bool LootObject::IsWithinLootDistance(Player* bot)" "bool LootObject::IsReadyForSkinning(" loot_flow_distance.inc)
 extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/LootAction.cpp"
     "bool LootAction::Execute(Event& event)" "enum ProfessionSpells" loot_flow_select.inc)
 extract_stealth_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/LootAction.cpp"

@@ -52,6 +52,12 @@ struct WorldObject
     uint32 instance = 1;
     virtual ~WorldObject() = default;
     virtual bool IsGameObject() const { return false; }
+    virtual bool IsCreature() const { return false; }
+};
+struct Creature : WorldObject
+{
+    bool readyForSkinning = false;
+    bool IsCreature() const override { return true; }
 };
 struct GameObject : WorldObject
 {
@@ -107,6 +113,10 @@ struct PlayerbotAI
 };
 namespace ai
 {
+    struct LootObject
+    {
+        static bool IsReadyForSkinning(Creature const& creature) { return creature.readyForSkinning; }
+    };
     struct ItemQualifier
     {
         uint32 id;
@@ -153,7 +163,7 @@ struct Fixture
     PlayerbotAI ai;
     AiObjectContext context;
     Loot loot;
-    WorldObject corpse;
+    Creature corpse;
     GameObject object;
     std::list<LootItem> itemStorage;
     ShouldLootObject value{ &bot, &ai, &context };
@@ -285,6 +295,14 @@ int main()
         Check(f.Calculate(), "an uncollectible displayed item does not hide a collectible stack");
         item.allowed = false;
         Check(!f.Calculate(), "a corpse with only uncollectible remaining stacks becomes ineligible");
+    }
+    {
+        Fixture f;
+        f.Add(100, LOOT_SLOT_MASTER);
+        Check(!f.Calculate(), "unavailable ordinary loot does not admit a corpse awaiting its skinning phase");
+        f.loot.items.clear();
+        f.corpse.readyForSkinning = true;
+        Check(f.Calculate(), "a corpse ready for skinning is eligible before its skinning loot is generated");
     }
     {
         Fixture f;

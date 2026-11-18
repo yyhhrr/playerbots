@@ -18,6 +18,7 @@
 class Player;
 class PlayerbotMgr;
 class ChatHandler;
+class Group;
 namespace ai { class SummonAction; }
 
 using namespace ai;
@@ -768,6 +769,7 @@ private:
     Map* directSummonMap = nullptr;
     bool UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned);
     void UpdateFaceTarget(uint32 elapsed, bool minimal);
+    bool TryMountWithGroupMaster(Group const& group);
 
 protected:
 	Player* bot;

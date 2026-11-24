@@ -773,6 +773,8 @@ WorldPosition WorldPosition::RandomPointOnTrans(GenericTransport* transport, uin
     WorldPosition transPos(transport);
     transPos.SetTranpotHeightToFloor(transport->GetEntry());
 
+    GameObjectInfo const* transportInfo = sGOStorage.LookupEntry<GameObjectInfo>(transport->GetEntry());
+    const bool mesaElevator = transportInfo && transportInfo->displayId == 360;
     WorldPosition bestPos;
     std::vector<WorldPosition> bestPath;
 
@@ -780,7 +782,9 @@ WorldPosition WorldPosition::RandomPointOnTrans(GenericTransport* transport, uin
     {
         WorldPosition pos = transPos + WorldPosition(0, irand(-radius, radius), irand(-radius, radius));
 
-        pos.SetOnTransport(transport, 1, -1);
+        const bool foundFloor = pos.SetOnTransport(transport, 1, -1);
+        if (mesaElevator && !foundFloor)
+            continue;
 
         if (pos.getZ() < transPos.getZ() - 1.0f)
             continue;
@@ -790,7 +794,8 @@ WorldPosition WorldPosition::RandomPointOnTrans(GenericTransport* transport, uin
 
         pos += WorldPosition(0, 0, 0, 0.1f);
 
-        if (!pos.isOnTransport(transport))
+        // A successful floor check is authoritative for the Mesa elevator model.
+        if (!mesaElevator && !pos.isOnTransport(transport))
             continue;
 
         bestPos = pos;

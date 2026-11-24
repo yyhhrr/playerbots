@@ -106,7 +106,7 @@ endfunction()
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/MovementActions.cpp"
     "bool MovementAction::MoveAlongDungeonPath(" "void MovementAction::CreateWp(" dungeon_motion_source.inc)
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/LastMovementValue.h"
-    "    class LastMovement\n" "    class LastMovementValue" dungeon_last_movement.inc)
+    "    enum class TransportRideState" "    class LastMovementValue" dungeon_last_movement.inc)
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/triggers/RangeTriggers.h"
     "    class UpdateFollowTrigger" "    class StopFollowTrigger" dungeon_follow_trigger.inc)
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/actions/FollowActions.cpp"

@@ -1660,7 +1660,7 @@ bool DebugAction::HandleTransportInfo(Player* requester, const std::string& para
         entry = (uint32)std::stoul(param);
 
     WorldPosition botPos(bot);
-    std::set<GenericTransport*> found = entry ? botPos.getTransports(entry) : botPos.getTransports();
+    std::set<GenericTransport*> found = WorldPosition::getTransports(*bot->GetMap(), entry);
 
     std::vector<GenericTransport*> transports(found.begin(), found.end());
     std::sort(transports.begin(), transports.end(), [botPos](GenericTransport* i, GenericTransport* j) { return botPos.distance(i) > botPos.distance(j); });
@@ -1744,7 +1744,7 @@ bool DebugAction::HandleTransportWander(Player* requester)
     {
         WorldPosition botPos(bot);
 
-        for (auto candidate : botPos.getTransports())
+        for (auto candidate : WorldPosition::getTransports(*bot->GetMap()))
         {
             if (!transport || botPos.distance(candidate) < botPos.distance(transport))
                 transport = candidate;

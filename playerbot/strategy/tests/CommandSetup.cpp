@@ -836,7 +836,7 @@ TestResult CommandSetupBoardTransport::Execute(const std::string& params, Player
     }
 
     WorldPosition botPos(bot);
-    std::set<GenericTransport*> found = entry ? botPos.getTransports(entry) : botPos.getTransports();
+    std::set<GenericTransport*> found = WorldPosition::getTransports(*bot->GetMap(), entry);
 
     GenericTransport* nearest = nullptr;
     float nearestDistance = 0.0f;

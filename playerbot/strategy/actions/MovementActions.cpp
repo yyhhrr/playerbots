@@ -15,6 +15,7 @@
 #include "MotionGenerators/TargetedMovementGenerator.h"
 #include "playerbot/TravelMgr.h"
 #include "Entities/Transports.h"
+#include "playerbot/TransportTrace.h"
 #ifdef MANGOSBOT_TWO
 #include "Entities/Vehicle.h"
 #endif
@@ -22,6 +23,161 @@
 #include "playerbot/DungeonMovement.h"
 
 using namespace ai;
+
+namespace
+{
+    void TraceRideBlock(PlayerbotAI* ai, const char* caller)
+    {
+        Player* bot = ai->GetBot();
+
+        if (!bot)
+            return;
+
+        TransportTrace::instance().Event(bot, nullptr, "ride", "ride_owner_block", caller);
+    }
+
+    bool NearStop(const WorldPosition& position, const WorldPosition& stop, float tolerance)
+    {
+        return position && stop && position.getMapId() == stop.getMapId() && position.distance(stop) < tolerance;
+    }
+
+    std::string TransportDiag(PlayerbotAI* ai, uint32 entry, const WorldPosition& dock, const char* caller)
+    {
+        std::ostringstream out;
+        out << " caller=" << (caller ? caller : "unknown");
+
+        if (!ai)
+            return out.str();
+
+        AiObjectContext* context = ai->GetAiObjectContext();
+        LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+        WorldPosition nearStop, exitStop, exitDock;
+
+        out << std::fixed << std::setprecision(1);
+
+        if (MovementAction::RouteRideStops(lastMove.lastPath, entry, nearStop, exitStop, exitDock) && nearStop)
+        {
+            const bool sameMap = dock && dock.getMapId() == nearStop.getMapId();
+
+            out << " near=" << nearStop.print();
+            out << " dockdist=" << (sameMap ? std::sqrt(dock.sqDistance(nearStop)) : -1.0f);
+        }
+        else
+            out << " near=none dockdist=-1.0";
+
+        return out.str();
+    }
+
+    WorldPosition TransportPosition(GenericTransport* transport)
+    {
+        if (!transport)
+            return WorldPosition();
+
+        if (dynamic_cast<Transport*>(transport))
+            return WorldPosition(transport);
+
+#if defined(MANGOSBOT_TWO) || MAX_EXPANSION == 2
+        Position state;
+        uint32 progress = 0;
+        transport->GetCurrentPathState(state, progress);
+
+        return WorldPosition(transport->GetMapId(), state.x, state.y, state.z);
+#else
+        return WorldPosition(transport);
+#endif
+    }
+
+    bool TransportDockedAt(GenericTransport* transport, const WorldPosition& stop)
+    {
+        if (!transport || !stop || transport->GetMapId() != stop.getMapId())
+            return false;
+
+        Transport* scheduled = dynamic_cast<Transport*>(transport);
+
+        if (scheduled && scheduled->GetPeriod())
+        {
+            WorldPosition keyframeStop;
+
+            return MovementAction::TransportAtStop(transport, keyframeStop) && NearStop(keyframeStop, stop, 40.0f);
+        }
+
+        return NearStop(TransportPosition(transport), stop, 5.0f);
+    }
+
+    uint32 PathRideEntry(TravelPath& path)
+    {
+        for (auto& node : path.getPath())
+        {
+            if (node.type == PathNodeType::NODE_TRANSPORT)
+                return node.entry ? node.entry : 1;
+        }
+
+        return 0;
+    }
+
+    WorldPosition PathRideStop(TravelPath& path)
+    {
+        for (auto& node : path.getPath())
+        {
+            if (node.type == PathNodeType::NODE_TRANSPORT)
+                return node.point;
+        }
+
+        return WorldPosition();
+    }
+
+    void SetMovePath(PlayerbotAI* ai, LastMovement& lastMove, TravelPath& path, const char* caller)
+    {
+        Player* bot = ai->GetBot();
+        const bool tracing = TransportTrace::instance().Enabled(1);
+        const uint32 rideBefore = tracing ? PathRideEntry(lastMove.lastPath) : 0;
+        const uint32 rideAfter = PathRideEntry(path);
+
+        if (tracing && rideBefore && !rideAfter)
+            TransportTrace::instance().Event(bot, nullptr, "wait", "path_drop_transport",
+                std::string(caller) + " entry=" + std::to_string(rideBefore));
+
+        const bool sameDestination = !path.empty() && !lastMove.lastPath.empty()
+            && path.getBack().distance(lastMove.lastPath.getBack()) < 100.0f;
+
+        if (rideBefore && !rideAfter && sameDestination && !lastMove.boardDeadlineMs)
+        {
+            const uint32 now = WorldTimer::getMSTime();
+
+            lastMove.boardStop = PathRideStop(lastMove.lastPath);
+            lastMove.boardWaitMs = now ? now : 1;
+            lastMove.boardDeadlineMs = lastMove.boardWaitMs + 150000;
+        }
+
+        if (lastMove.boardDeadlineMs)
+        {
+            const bool waitingAtStop = lastMove.boardStop
+                && bot->GetMapId() == lastMove.boardStop.getMapId()
+                && WorldTimer::getMSTime() <= lastMove.boardDeadlineMs;
+
+            if (waitingAtStop && sameDestination && !rideAfter)
+            {
+                if (tracing)
+                    TransportTrace::instance().Event(bot, nullptr, "wait", "path_kept_transport",
+                        std::string(caller) + " entry=" + std::to_string(rideBefore));
+                path = lastMove.lastPath;
+                return;
+            }
+
+            if (!waitingAtStop || !sameDestination)
+            {
+                if (tracing)
+                    TransportTrace::instance().Event(bot, nullptr, "wait", "board_wait_expired", caller);
+                lastMove.boardWaitMs = 0;
+                lastMove.boardStop = WorldPosition();
+                lastMove.boardEntry = 0;
+                lastMove.boardDeadlineMs = 0;
+            }
+        }
+
+        lastMove.setPath(path);
+    }
+}
 
 // Dungeon moves use the checked route itself. Native follow/chase generators
 // can otherwise recalculate a new offset or fall back to a direct shortcut.
@@ -133,6 +289,12 @@ void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float 
 
 bool MovementAction::isPossible()
 {
+    if (IsRiding(ai))
+    {
+        TraceRideBlock(ai, "isPossible");
+        return false;
+    }
+
     return ai->CanMove();
 }
 
@@ -308,7 +470,7 @@ bool MovementAction::FlyDirect(const WorldPosition &startPosition, const WorldPo
 
         AI_VALUE(LastMovement&, "last movement").nextTeleport = now + (time_t)MoveDelay(startPosition.distance(movePosition));
 
-        return bot->TeleportTo(movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), startPosition.getAngleTo(movePosition));
+        return PlayerbotAI::TeleportSafe(bot, movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), startPosition.getAngleTo(movePosition));
     }
 
     MotionMaster& mm = *bot->GetMotionMaster();
@@ -391,11 +553,12 @@ bool MovementAction::UseTaxi(PlayerbotAI* ai, uint32 entry, bool needNpc)
     return goTaxi;
 }
 
-bool MovementAction::MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport)
+bool MovementAction::MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport, WorldPosition dockPosition, WorldPosition exitPosition, const char* caller)
 {
     AiObjectContext* context = ai->GetAiObjectContext();
     Player* bot = ai->GetBot();
     WorldPosition botPos(bot);
+    const std::string diag = TransportDiag(ai, transport ? transport->GetEntry() : 0, dockPosition, caller);
 
     uint32 radius = 20;
 
@@ -406,13 +569,26 @@ bool MovementAction::MoveOnTransport(PlayerbotAI* ai, GenericTransport* transpor
     WorldPosition transPos = botPos.RandomPointOnTrans(transport, 20.0f, doTeleport ? nullptr : bot, path);
 
     if (!transPos)
+    {
+        TransportTrace::instance().Event(bot, transport, "board", "pick_deck_spot", "no_deck_point" + diag, dockPosition, exitPosition);
         return false;
+    }
+
+    bool onDeck = bot->GetTransport() == transport;
+
+    TransportTrace::instance().Event(bot, transport, "board", onDeck ? "pick_deck_spot" : (doTeleport ? "board_tp" : "board_walk"),
+        onDeck ? "shuffle_on_deck" : (doTeleport ? "teleport_on_deck" : "walk_on_deck") + diag, dockPosition, exitPosition);
 
     if (doTeleport)
     {
         bot->GetMap()->PlayerRelocation(bot, transPos.getX(), transPos.getY(), transPos.getZ(), bot->GetOrientation());
         transport->AddPassenger(bot, true);
         bot->SendHeartBeat();
+        TransportTrace::instance().Event(bot, transport, "board", "board_tp", "relocated_and_registered" + diag, dockPosition, exitPosition);
+
+        if (TransportMode(ai) == 1)
+            RideEnter(ai, transport, dockPosition, exitPosition);
+
         return true;
     }
 
@@ -423,11 +599,16 @@ bool MovementAction::MoveOnTransport(PlayerbotAI* ai, GenericTransport* transpor
         path = WorldPosition(transport).getPathStepFrom(botPos, bot);
 
         if (path.empty())
+        {
+            TransportTrace::instance().Event(bot, transport, "board", "board_walk", "no_world_path_from_deck" + diag, dockPosition, exitPosition);
             return false;
+        }
     }
     else
     {
         transport->AddPassenger(bot, true);
+
+        TransportTrace::instance().Event(bot, transport, "board", "board_walk", "registered_on_deck" + diag, dockPosition, exitPosition);
 
         ai->StopMoving();
 
@@ -471,7 +652,7 @@ bool MovementAction::MoveOnTransport(PlayerbotAI* ai, GenericTransport* transpor
     return true;
 }
 
-bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport)
+bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport, WorldPosition dockPosition)
 {
     AiObjectContext* context = ai->GetAiObjectContext();
     Player* bot = ai->GetBot();
@@ -479,6 +660,7 @@ bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bo
 
     if (!bot->GetTransport())
     {
+        TransportTrace::instance().Event(bot, nullptr, "exit", "exit_walk", "not_on_transport", dockPosition, exitPos);
         return false;
     }
 
@@ -488,7 +670,9 @@ bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bo
 
     if (doTeleport)
     {
-        bot->TeleportTo(exitPos.getMapId(), exitPos.getX(), exitPos.getY(), exitPos.getZ(), exitPos.getO(), 0);
+        PlayerbotAI::TeleportSafe(bot, exitPos.getMapId(), exitPos.getX(), exitPos.getY(), exitPos.getZ(), exitPos.getO(), 0);
+        TransportTrace::instance().Event(bot, transport, "exit", "exit_tp", "teleported_to_exit_dock", dockPosition, exitPos);
+        TransportTrace::instance().RideEnded(bot);
         return true;
     }
 
@@ -498,11 +682,13 @@ bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bo
 
     if (path.empty())
     {
+        TransportTrace::instance().Event(bot, transport, "exit", "exit_walk", "no_world_path_after_remove", dockPosition, exitPos);
         return false;
     }
 
     if (exitPos.sqDistance(path.back()) > 5.0f)
     {
+        TransportTrace::instance().Event(bot, transport, "exit", "exit_walk", "path_short_of_dock", dockPosition, exitPos);
         return false;
     }
 
@@ -515,14 +701,326 @@ bool MovementAction::MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bo
     bot->GetMotionMaster()->MovePath(pointPath, FORCED_MOVEMENT_RUN, false);
 #endif
 
+    TransportTrace::instance().Event(bot, transport, "exit", "exit_walk", "walking_to_dock", dockPosition, exitPos);
+    TransportTrace::instance().RideEnded(bot);
+
     return true;
 }
 
-bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport)
+bool MovementAction::WanderOnDeck(PlayerbotAI* ai, GenericTransport* transport)
 {
+    if (!ai || !ai->GetBot() || !transport)
+        return false;
+
+    Player* bot = ai->GetBot();
+    WorldPosition botPos(bot);
+    std::vector<WorldPosition> path;
+
+    WorldPosition target = botPos.RandomPointOnTrans(transport, 15.0f, bot, path);
+
+    if (!target || path.empty())
+        return false;
+
+    bot->GetMotionMaster()->Clear();
+
+    std::vector<G3D::Vector3> pointPath = target.toPointsArray(path);
+#ifndef MANGOSBOT_TWO
+    bot->GetMotionMaster()->MovePath(pointPath, FORCED_MOVEMENT_WALK, false, false);
+#else
+    bot->GetMotionMaster()->MovePath(pointPath, FORCED_MOVEMENT_WALK, false);
+#endif
+
+    TransportTrace::instance().Event(bot, transport, "ride", "wander", "walking_on_deck");
+
+    return true;
+}
+
+bool MovementAction::TransportAtStop(GenericTransport* transport, WorldPosition& stopPosition)
+{
+    if (!transport)
+        return false;
+
+    Transport* scheduled = dynamic_cast<Transport*>(transport);
+
+    if (!scheduled)
+        return false;
+
+    uint32 period = scheduled->GetPeriod();
+
+    if (!period)
+        return false;
+
+    uint32 cycle = scheduled->GetPathProgress() % period;
+
+    for (auto& frame : scheduled->GetKeyFrames())
+    {
+        if (!frame.Node)
+            continue;
+
+        if (cycle < frame.ArriveTime || cycle >= frame.DepartureTime)
+            continue;
+
+        if (frame.Node->mapid != transport->GetMapId())
+            continue;
+
+        const WorldPosition candidate(frame.Node->mapid, frame.Node->x, frame.Node->y, frame.Node->z);
+
+        if (TransportPosition(transport).distance(candidate) > 10.0f)
+            continue;
+
+        stopPosition = candidate;
+        return true;
+    }
+
+    return false;
+}
+
+bool MovementAction::RouteRideStops(TravelPath& path, uint32 entry, WorldPosition& boardStop, WorldPosition& exitStop, WorldPosition& exitDock)
+{
+    boardStop = exitStop = exitDock = WorldPosition();
+
+    std::vector<PathNodePoint>& nodes = path.getPath();
+
+    auto isRideNode = [entry](const PathNodePoint& node)
+    {
+        return node.type == PathNodeType::NODE_TRANSPORT && (node.entry == entry || !node.entry);
+    };
+
+    size_t first = nodes.size();
+
+    for (size_t i = 0; i < nodes.size(); i++)
+    {
+        if (isRideNode(nodes[i]))
+        {
+            first = i;
+            break;
+        }
+    }
+
+    if (first == nodes.size())
+        return false;
+
+    boardStop = nodes[first].point;
+
+    size_t last = first;
+    while (last + 1 < nodes.size() && isRideNode(nodes[last + 1]))
+        last++;
+
+    exitStop = nodes[last].point;
+
+    if (last + 1 < nodes.size())
+        exitDock = nodes[last + 1].point;
+
+    return true;
+}
+
+bool MovementAction::IsRiding(PlayerbotAI* ai)
+{
+    if (!ai || !ai->GetBot())
+        return false;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+
+    return AI_VALUE(LastMovement&, "last movement").ride.active();
+}
+
+void MovementAction::RideEnter(PlayerbotAI* ai, GenericTransport* transport, const WorldPosition& boardStop, const WorldPosition& exitDock)
+{
+    if (!ai || !transport)
+        return;
+
+    Player* bot = ai->GetBot();
+    AiObjectContext* context = ai->GetAiObjectContext();
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    TransportRide& ride = lastMove.ride;
+
+    ride.clear();
+    ride.state = TransportRideState::RIDE;
+    ride.entry = transport->GetEntry();
+    ride.guid = transport->GetObjectGuid();
+    ride.startMs = WorldTimer::getMSTime();
+    ride.nextWanderMs = ride.startMs + urand(30000, 60000);
+    ride.boardStop = boardStop;
+    ride.exitDock = exitDock;
+
+    WorldPosition pathBoard, pathExit, pathDock;
+
+    if (RouteRideStops(lastMove.lastPath, ride.entry, pathBoard, pathExit, pathDock))
+    {
+        ride.exitStop = pathExit;
+
+        if (!ride.exitDock)
+            ride.exitDock = pathDock;
+    }
+
+    if (!ride.boardStop)
+        ride.boardStop = pathBoard;
+
+    Transport* scheduled = dynamic_cast<Transport*>(transport);
+    uint32 period = scheduled ? scheduled->GetPeriod() : 0;
+
+    ride.budgetMs = period ? period + 120000 : 900000;
+
+    if (ride.boardStop && ride.exitStop && ride.boardStop.getMapId() == ride.exitStop.getMapId() && ride.boardStop.sqDistance(ride.exitStop) < 25.0f)
+        TransportTrace::instance().Event(bot, transport, "ride", "ride_enter_same_stop", "board_equals_exit", ride.boardStop, ride.exitDock);
+
+    TransportTrace::instance().Event(bot, transport, "ride", "ride_enter", "mode1_board exit_stop=" + (ride.exitStop ? ride.exitStop.print() : std::string("none")), ride.boardStop, ride.exitDock);
+}
+
+void MovementAction::RideLeave(PlayerbotAI* ai, const char* reason)
+{
+    if (!ai || !ai->GetBot())
+        return;
+
+    Player* bot = ai->GetBot();
+    AiObjectContext* context = ai->GetAiObjectContext();
+    TransportRide& ride = AI_VALUE(LastMovement&, "last movement").ride;
+
+    if (!ride.active())
+        return;
+
+    TransportTrace::instance().Event(bot, bot->GetTransport(), "ride", "ride_leave", reason, ride.exitDock);
+    ride.clear();
+}
+
+bool MovementAction::RideUpdate(PlayerbotAI* ai)
+{
+    if (!ai || !ai->GetBot())
+        return false;
+
+    Player* bot = ai->GetBot();
+
+    if (!bot->IsInWorld())
+        return false;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    TransportRide& ride = lastMove.ride;
+
+    if (!ride.active())
+        return false;
+
+    GenericTransport* transport = bot->GetTransport();
+
+    if (!transport)
+    {
+        RideLeave(ai, "transport_gone");
+        return false;
+    }
+
+    if (transport->GetEntry() != ride.entry || (ride.guid && transport->GetObjectGuid() != ride.guid))
+    {
+        RideLeave(ai, "transport_changed");
+        return false;
+    }
+
+    if (!bot->IsAlive())
+    {
+        RideLeave(ai, "died");
+        return false;
+    }
+
+    uint32 now = WorldTimer::getMSTime();
+
+    TransportTrace::instance().Sample(bot, transport, ride.boardStop, ride.exitDock);
+
+    if (ride.budgetMs && WorldTimer::getMSTimeDiff(ride.startMs, now) > ride.budgetMs)
+    {
+        WorldPosition exitPos = ride.exitDock ? ride.exitDock : (ride.exitStop ? ride.exitStop : ride.boardStop);
+
+        TransportTrace::instance().Event(bot, transport, "ride", "abort", "ride_budget", ride.boardStop, exitPos);
+
+        if (exitPos)
+            MoveOffTransport(ai, exitPos, true, ride.exitStop);
+
+        RideLeave(ai, "ride_budget");
+        return false;
+    }
+
+    WorldPosition pathBoard, pathExit, pathDock;
+    const bool pathHasRide = RouteRideStops(lastMove.lastPath, ride.entry, pathBoard, pathExit, pathDock);
+    bool routeUsesRide = true;
+
+    if (pathHasRide)
+    {
+        ride.routeLostMs = 0;
+
+        if (!ride.exitStop)
+        {
+            ride.exitStop = pathExit;
+
+            if (!ride.exitDock)
+                ride.exitDock = pathDock;
+        }
+        else if (!NearStop(pathExit, ride.exitStop, 50.0f))
+            routeUsesRide = false;
+    }
+    else if (ride.exitStop)
+    {
+        if (!ride.routeLostMs)
+            ride.routeLostMs = now ? now : 1;
+
+        if (WorldTimer::getMSTimeDiff(ride.routeLostMs, now) > 5000)
+            routeUsesRide = false;
+    }
+
+    const WorldPosition transportPos = TransportPosition(transport);
+    WorldPosition keyframeStop;
+    const bool atKeyframeStop = TransportAtStop(transport, keyframeStop);
+    const bool atExitStop = NearStop(transportPos, ride.exitStop, 20.0f);
+    const bool atBoardStop = NearStop(transportPos, ride.boardStop, 20.0f);
+
+    if (atKeyframeStop || atExitStop || atBoardStop)
+    {
+        const WorldPosition stop = atKeyframeStop ? keyframeStop : (atExitStop ? ride.exitStop : ride.boardStop);
+
+        if (!routeUsesRide)
+        {
+            TransportTrace::instance().Event(bot, transport, "ride", "ride_exit", "route_changed", ride.boardStop, ride.exitDock);
+            MoveOffTransport(ai, atExitStop && ride.exitDock ? ride.exitDock : stop, true, stop);
+            RideLeave(ai, "route_changed");
+            return false;
+        }
+
+        const bool plannedExit = atExitStop || (atKeyframeStop && NearStop(keyframeStop, ride.exitStop, 40.0f))
+            || (!ride.exitStop && atKeyframeStop && !NearStop(keyframeStop, ride.boardStop, 25.0f));
+
+        if (plannedExit)
+        {
+            TransportTrace::instance().Event(bot, transport, "ride", "ride_exit", "exit_stop", ride.boardStop, ride.exitDock);
+            MoveOffTransport(ai, ride.exitDock ? ride.exitDock : stop, true, stop);
+            RideLeave(ai, "exit_stop");
+            return false;
+        }
+
+        return false;
+    }
+
+    if (ride.nextWanderMs && now >= ride.nextWanderMs)
+    {
+        ride.nextWanderMs = now + urand(30000, 60000);
+
+        if (!bot->IsInCombat() && bot->IsStopped() && !ai->HasStrategy("stay", ai->GetState()))
+            WanderOnDeck(ai, transport);
+    }
+
+    return false;
+}
+
+bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport, const char* caller, bool* approaching)
+{
+    if (IsRiding(ai))
+    {
+        TraceRideBlock(ai, "use_transport");
+        return true;
+    }
+
     AiObjectContext* context = ai->GetAiObjectContext();
     Player* bot = ai->GetBot();
     WorldPosition botPos(bot);
+    LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+    const bool tracing = TransportTrace::instance().Enabled(1);
+    const std::string diag = tracing ? TransportDiag(ai, entry, dockPosition, caller) : std::string();
 
     // Mesa elevators move vertically while their X/Y position remains
     // effectively unchanged. Use 3D distance so upper and lower stops
@@ -549,13 +1047,16 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
         if (dockPosition.mapid == bot->GetMapId() && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
         {
-            MoveOffTransport(ai, exitPosition, doTeleport);
+            MoveOffTransport(ai, exitPosition, doTeleport, dockPosition);
             ai->TellDebug(ai->GetMaster(), "Leaving transport " + transportName, "debug move");
             return true;
         }
 
         if (urand(0, 50))
-            MoveOnTransport(ai, transport, doTeleport);
+            MoveOnTransport(ai, transport, doTeleport, dockPosition, exitPosition, caller);
+
+        TransportTrace::instance().Sample(bot, transport, dockPosition, exitPosition);
+        TransportTrace::instance().Event(bot, transport, "ride", "waiting_for_dock", "docked_too_far" + diag, dockPosition, exitPosition);
 
         ai->TellDebug(ai->GetMaster(), "Waiting ontop of transport " + transportName + " at " + std::to_string((uint32)dockPosition.fDist(transport)) + "y from docking.", "debug move");
 
@@ -566,36 +1067,156 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
     // belong to the thread that updates that map: do not read them.
     if (dockPosition.mapid != bot->GetMapId())
     {
+        TransportTrace::instance().Event(bot, nullptr, "wait", "abort", "dock_on_other_map" + diag, dockPosition, exitPosition);
         ai->TellDebug(ai->GetMaster(), "Waiting for transport on different map.", "debug move");
         return false;
     }
+
+    const bool strictGate = approaching && TransportMode(ai) < 2;
+
+    WorldPosition nearStop, legExit, legDock;
+    const bool rideLeg = RouteRideStops(lastMove.lastPath, entry, nearStop, legExit, legDock);
+
+    if (rideLeg && nearStop && !lastMove.boardDeadlineMs)
+    {
+        lastMove.boardStop = nearStop;
+        lastMove.boardEntry = entry;
+        lastMove.boardWaitMs = WorldTimer::getMSTime();
+    }
+    else if (rideLeg && nearStop)
+        lastMove.boardStop = nearStop;
+    else if (lastMove.boardStop && lastMove.boardStop.getMapId() == bot->GetMapId())
+        nearStop = lastMove.boardStop;
+
+    const bool wrongStop = nearStop && !NearStop(dockPosition, nearStop, 40.0f);
+    const bool atDock = botPos.distance(dockPosition) <= INTERACTION_DISTANCE;
 
     float minDist = 0;
 
     std::string transportName;
 
+    const WorldPosition boardStop = nearStop ? nearStop : dockPosition;
+    GenericTransport* dockedTransport = nullptr;
+
     for (auto& trans : WorldPosition::getTransports(*bot->GetMap(), entry))
     {
-        float distance = dockDistanceSq(trans);
+        const float distance = dockDistanceSq(trans);
 
-        if (minDist && distance > minDist)
-            continue;
+        if (strictGate && TransportDockedAt(trans, boardStop))
+        {
+            transport = trans;
+            dockedTransport = trans;
+            minDist = distance;
+        }
+        else if (!dockedTransport && (!minDist || distance < minDist))
+        {
+            transport = trans;
+            minDist = distance;
+        }
 
-        transport = trans;
-        minDist = distance;
-
-        GameObjectInfo const* data = sGOStorage.LookupEntry<GameObjectInfo>(transport->GetEntry());
-        transportName = transport->GetName();
+        GameObjectInfo const* data = sGOStorage.LookupEntry<GameObjectInfo>(trans->GetEntry());
+        transportName = trans->GetName();
         if (transportName.empty())
             transportName = data->name;
     }
 
-    if (transport && dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE)
+    uint32 waitBudgetMs = 120000;
+
+    if (Transport* scheduled = dynamic_cast<Transport*>(transport))
+        if (uint32 period = scheduled->GetPeriod())
+            waitBudgetMs = period + 60000;
+
+    const uint32 now = WorldTimer::getMSTime();
+
+    const bool canBoard = transport && (strictGate ? (!wrongStop && atDock && TransportDockedAt(transport, boardStop))
+                                                   : dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE);
+
+    if (canBoard)
     {
-        MoveOnTransport(ai, transport, doTeleport);
+        lastMove.boardWaitMs = 0;
+        lastMove.boardStop = WorldPosition();
+        lastMove.boardEntry = 0;
+        lastMove.boardDeadlineMs = 0;
+
+        MoveOnTransport(ai, transport, doTeleport, boardStop, exitPosition, caller);
 
         return true;
     }
+
+    if (strictGate && lastMove.boardWaitMs && !lastMove.boardDeadlineMs)
+        lastMove.boardDeadlineMs = lastMove.boardWaitMs + waitBudgetMs;
+    else if (strictGate && lastMove.boardDeadlineMs && lastMove.boardWaitMs
+        && lastMove.boardDeadlineMs < lastMove.boardWaitMs + waitBudgetMs)
+        lastMove.boardDeadlineMs = lastMove.boardWaitMs + waitBudgetMs;
+
+    if (strictGate && lastMove.boardDeadlineMs && now > lastMove.boardDeadlineMs)
+    {
+        const WorldPosition exitDock = legDock ? legDock : exitPosition;
+
+        TransportTrace::instance().Event(bot, transport, "wait", "abort", "board_wait_budget" + diag, dockPosition, exitDock);
+
+        std::vector<PathNodePoint>& nodes = lastMove.lastPath.getPath();
+        PathNodePoint lastRideNode;
+        bool sawRide = false;
+
+        for (auto& node : nodes)
+        {
+            if (node.type == PathNodeType::NODE_TRANSPORT && (node.entry == entry || !node.entry))
+            {
+                lastRideNode = node;
+                sawRide = true;
+                continue;
+            }
+
+            if (sawRide)
+                break;
+        }
+
+        lastMove.boardWaitMs = 0;
+        lastMove.boardStop = WorldPosition();
+        lastMove.boardEntry = 0;
+        lastMove.boardDeadlineMs = 0;
+
+        if (sawRide)
+            lastMove.lastPath.cutTo(lastRideNode, true);
+
+        if (!lastMove.lastPath.getPath().empty())
+            PlayerbotAI::TeleportSafe(bot, lastMove.lastPath.getPath().front().point);
+        else if (exitDock)
+            PlayerbotAI::TeleportSafe(bot, exitDock.getMapId(), exitDock.getX(), exitDock.getY(), exitDock.getZ(), exitDock.getO(), 0);
+
+        return false;
+    }
+
+    if (strictGate && transport && !wrongStop && !atDock)
+    {
+        *approaching = true;
+
+        TransportTrace::instance().Event(bot, transport, "wait", "wait_for_dock", "walking_to_board" + diag, dockPosition, exitPosition);
+
+        PlayerbotAI::TeleportSafe(bot, dockPosition);
+
+        return false;
+    }
+
+    std::string carDiag;
+
+    if (transport && tracing)
+    {
+        const WorldPosition carPos = TransportPosition(transport);
+        const float carDist = carPos && boardStop && carPos.getMapId() == boardStop.getMapId() ? carPos.distance(boardStop) : -1.0f;
+
+        std::ostringstream car;
+        car << std::fixed << std::setprecision(1) << " car=" << (carPos ? carPos.print() : std::string("none")) << " cardist=" << carDist;
+        carDiag = car.str();
+    }
+
+    if (!transport)
+        TransportTrace::instance().Event(bot, nullptr, "wait", "wait_for_dock", "no_transport_for_entry" + diag + carDiag, dockPosition, exitPosition);
+    else if (wrongStop)
+        TransportTrace::instance().Event(bot, transport, "wait", "wait_for_dock", "transport_at_other_stop" + diag + carDiag, dockPosition, exitPosition);
+    else
+        TransportTrace::instance().Event(bot, transport, "wait", "wait_for_dock", "transport_away" + diag + carDiag, dockPosition, exitPosition);
 
     if (transportName.empty())
         ai->TellDebug(ai->GetMaster(), "Waiting for transport on different map.", "debug move");
@@ -607,6 +1228,12 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
 bool MovementAction::MinimalMove(PlayerbotAI* ai)
 {
+    if (IsRiding(ai))
+    {
+        TraceRideBlock(ai, "minimal_move");
+        return true;
+    }
+
     if (!sPlayerbotAIConfig.enableMinimalMove)
         return false;
 
@@ -640,7 +1267,7 @@ bool MovementAction::MinimalMove(PlayerbotAI* ai)
     {
         if (nextStep->point.sqDistance(bot) > INTERACTION_DISTANCE * INTERACTION_DISTANCE)
         {
-            bot->TeleportTo(nextStep->point);
+            PlayerbotAI::TeleportSafe(bot, nextStep->point);
 
             return true;
         }
@@ -666,12 +1293,13 @@ bool MovementAction::MinimalMove(PlayerbotAI* ai)
 
         WorldPosition exitPos = (exitStep != path.end()) ? exitStep->point : nextStep->point;
 
-        bool didTransport = UseTransport(ai, nextStep->entry, nextStep->point, exitPos, true);
+        TransportTrace::instance().Event(bot, nullptr, "wait", "state_enter", "minimal_move", nextStep->point, exitPos);
+
+        bool approaching = false;
+        bool didTransport = UseTransport(ai, nextStep->entry, nextStep->point, exitPos, true, "minimal_move", &approaching);
 
         if (!didTransport) //We did not board yet or are on the transport so just wait.
-        {
             return true;
-        }
 
         if (bot->GetTransport()) //Just boarded
         {
@@ -698,7 +1326,7 @@ bool MovementAction::MinimalMove(PlayerbotAI* ai)
 
         nextStep = path.begin();
 
-        bot->TeleportTo(nextStep->point);
+        PlayerbotAI::TeleportSafe(bot, nextStep->point);
 
         return true;
     }
@@ -723,7 +1351,7 @@ bool MovementAction::MinimalMove(PlayerbotAI* ai)
     if (ai->HasPlayerNearby(nextStep->point, sWorld.getConfig(CONFIG_FLOAT_LISTEN_RANGE_YELL)))
         return true;
 
-    bot->TeleportTo(nextStep->point);
+    PlayerbotAI::TeleportSafe(bot, nextStep->point);
 
     if (std::next(nextStep) == path.end())
     {
@@ -762,19 +1390,23 @@ bool MovementAction::WaitForTransport()
 
     if (!transport || transport->GetEntry() != lastMove.lastTransportEntry || lastMove.lastPath.getPath().front().type != PathNodeType::NODE_TRANSPORT || lastMove.lastPath.getPath().front().entry != lastMove.lastTransportEntry)
     {
+        TransportTrace::instance().Event(bot, transport, "wait", "abort", "resume_transport_lost");
         lastMove.lastTransportEntry = 0;
         return false;
     }
 
     TravelPath path = lastMove.lastPath;
 
-    if(!path.UpcommingSpecialMovement(bot, 0.0f, bot->GetTransport()))
+    if(!path.UpcommingSpecialMovement(bot, 0.0f, bot->GetTransport(), ai))
+    {
+        TransportTrace::instance().Event(bot, transport, "wait", "abort", "resume_no_upcoming_stop");
         return false;
+    }
 
     PathNodePoint dockPoint = path.getPath().front();
     PathNodePoint telePoint = *std::next(path.getPath().begin());
         
-    if (!UseTransport(ai, dockPoint.entry, dockPoint.point, telePoint.point, sPlayerbotAIConfig.transportTeleportType > 0))
+    if (!UseTransport(ai, dockPoint.entry, dockPoint.point, telePoint.point, TransportMode(ai) > 0, "wait_for_transport"))
         return true;
 
     lastMove.lastTransportEntry = 0;
@@ -894,13 +1526,20 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         if (currentPoint.entry)
             AI_VALUE(LastMovement&, "last area trigger").lastAreaTrigger = currentPoint.entry;
         else
-            return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0) ? true : false;
+            return PlayerbotAI::TeleportSafe(bot, nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0) ? true : false;
     }
 
     //We are getting 'on' transport.
     if (nextPoint.type == PathNodeType::NODE_TRANSPORT)
     {
-        bool usedTransport = UseTransport(ai, nextPoint.entry, nextPoint.point, WorldPosition(), sPlayerbotAIConfig.transportTeleportType > 0);
+        TransportTrace::instance().Event(bot, nullptr, "wait", "state_enter", "route_stop_reached", nextPoint.point);
+
+        LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+
+        SetMovePath(ai, lastMove, path, "hsm_get_on");
+
+        bool approaching = false;
+        bool usedTransport = UseTransport(ai, nextPoint.entry, nextPoint.point, WorldPosition(), TransportMode(ai) > 0, "hsm_get_on", &approaching);
 
         uint32 lastTransportEntry = 0;
 
@@ -911,14 +1550,15 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         return true;
     }
 
-    if (currentPoint.type == PathNodeType::NODE_TRANSPORT && sPlayerbotAIConfig.transportTeleportType == 2) //Instant teleport case
+    if (currentPoint.type == PathNodeType::NODE_TRANSPORT && TransportMode(ai) == 2) //Instant teleport case
     {
-        return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
+        TransportTrace::instance().Event(bot, nullptr, "exit", "board_tp", "mode2_dock_bypass", currentPoint.point, nextPoint.point);
+        return PlayerbotAI::TeleportSafe(bot, nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
     }
     
     if (currentPoint.type == PathNodeType::NODE_TRANSPORT)
     {
-        bool usedTransport = UseTransport(ai, currentPoint.entry, currentPoint.point, nextPoint.point, sPlayerbotAIConfig.transportTeleportType > 0);
+        bool usedTransport = UseTransport(ai, currentPoint.entry, currentPoint.point, nextPoint.point, TransportMode(ai) > 0, "hsm_at_node");
 
         uint32 lastTransportEntry = 0;
 
@@ -930,7 +1570,7 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
         else
         {
             if (!bot->GetTransport())
-                return bot->TeleportTo(nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
+                return PlayerbotAI::TeleportSafe(bot, nextPoint.point.getMapId(), nextPoint.point.getX(), nextPoint.point.getY(), nextPoint.point.getZ(), nextPoint.point.getO(), 0);
 
             lastTransportEntry = nextPoint.entry;
         }
@@ -1184,6 +1824,11 @@ Unit* MovementAction::GetMover(Player* bot)
 
 bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react, bool noPath, bool ignoreEnemyTargets)
 {
+    if (IsRiding(ai))
+    {
+        TraceRideBlock(ai, "move_to2");
+        return false;
+    }
     if (!endPos.isValid())
         return false;
 
@@ -1254,7 +1899,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
     TravelPath movePath = ResolveMovePath(startPos, endPos, mover, lastMove);
 
-    lastMove.setPath(movePath);
+    SetMovePath(ai, lastMove, movePath, "move_to2");
 
     if (movePath.empty())
         return false;
@@ -1273,7 +1918,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     TravelNodePathType pathType = TravelNodePathType::none;
     uint32 entry = 0;
     WorldPosition telePosition;
-    bool specialMovement = movePath.UpcommingSpecialMovement(startPos, sPlayerbotAIConfig.reactDistance,bot->GetTransport());
+    bool specialMovement = movePath.UpcommingSpecialMovement(startPos, sPlayerbotAIConfig.reactDistance,bot->GetTransport(), ai);
 
     if (specialMovement)
         return HandleSpecialMovement(movePath);
@@ -1334,14 +1979,14 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
             ai->InterruptSpell(false);
     }
 
-    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove)
+    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove && !PlayerbotAI::IsDrivingVehicle(bot))
     {
         WorldPosition teleportPosition = movePath.getBack();
         if (!ai->HasPlayerNearby(teleportPosition))
         {
             time_t now = time(0);
             lastMove.nextTeleport = now + (time_t)MoveDelay(startPos.distance(teleportPosition));
-            return bot->TeleportTo(teleportPosition.getMapId(),
+            return PlayerbotAI::TeleportSafe(bot, teleportPosition.getMapId(),
                 teleportPosition.getX(),
                 teleportPosition.getY(),
                 teleportPosition.getZ(),
@@ -1454,6 +2099,11 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
 
 bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, bool react, bool noPath, bool ignoreEnemyTargets)
 {
+    if (IsRiding(ai))
+    {
+        TraceRideBlock(ai, "move_to");
+        return false;
+    }
     return MoveTo2(WorldPosition(mapId, x, y, z), idle, react, noPath, ignoreEnemyTargets);
 
     WorldPosition endPosition(mapId, x, y, z, 0);
@@ -1666,7 +2316,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
         movePath = lastMove.lastPath;
     }
 
-    lastMove.setPath(movePath);
+    SetMovePath(ai, lastMove, movePath, "move_to");
 
     if (!movePath.empty())
     {
@@ -1688,7 +2338,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
 
         TravelNodePathType pathType = TravelNodePathType::none;
 
-        if (movePath.UpcommingSpecialMovement(startPosition, maxDist, bot->GetTransport()))
+        if (movePath.UpcommingSpecialMovement(startPosition, maxDist, bot->GetTransport(), ai))
         {
 
             PathNodePoint nextPathPoint = movePath.getPath().front();
@@ -1802,13 +2452,13 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                     AI_VALUE(LastMovement&, "last area trigger").lastAreaTrigger = entry;
                 }
                 else
-                    return bot->TeleportTo(movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), movePosition.getO(), 0);
+                    return PlayerbotAI::TeleportSafe(bot, movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), movePosition.getO(), 0);
             }
 
             if (pathType == PathNodeType::NODE_TRANSPORT)
             {
                 WorldPosition telePosition = std::next(movePath.getPath().begin())->point;
-                bool usedTransport = UseTransport(ai, entry, bot->GetTransport() ? telePosition : movePosition, movePosition, sPlayerbotAIConfig.transportTeleportType > 0);
+                bool usedTransport = UseTransport(ai, entry, bot->GetTransport() ? telePosition : movePosition, movePosition, TransportMode(ai) > 0, "moveto");
                 if (!usedTransport)
                 {
                     if (bot->GetTransport())
@@ -1820,7 +2470,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
                 {
                     if (!bot->GetTransport())
                     {
-                        return bot->TeleportTo(movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), movePosition.getO(), 0);
+                        return PlayerbotAI::TeleportSafe(bot, movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), movePosition.getO(), 0);
                     }
 
                     lastMove.lastTransportEntry = entry;
@@ -2187,7 +2837,7 @@ bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, 
 
         lastMove.nextTeleport = now + (time_t)MoveDelay(startPosition.distance(movePosition));
 
-        return bot->TeleportTo(movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), startPosition.getAngleTo(movePosition));
+        return PlayerbotAI::TeleportSafe(bot, movePosition.getMapId(), movePosition.getX(), movePosition.getY(), movePosition.getZ(), startPosition.getAngleTo(movePosition));
     }
 
     // walk if master walks and is close

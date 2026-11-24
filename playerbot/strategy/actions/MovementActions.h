@@ -19,12 +19,22 @@ namespace ai
         virtual bool IsMovement() override { return true; }
 
         static bool MinimalMove(PlayerbotAI* ai);
-        static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport);
-    protected:
-        static bool MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport);
-        static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport);
+        static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport, const char* caller = nullptr, bool* approaching = nullptr);
+        static bool MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport, WorldPosition dockPosition = WorldPosition(), WorldPosition exitPosition = WorldPosition(), const char* caller = nullptr);
+        static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport, WorldPosition dockPosition = WorldPosition());
 
         bool MoveAlongDungeonPath(const WorldPosition& destination, dungeon::MovePurpose purpose, bool walking = false);
+
+        static bool IsRiding(PlayerbotAI* ai);
+        static bool RideUpdate(PlayerbotAI* ai);
+        static void RideEnter(PlayerbotAI* ai, GenericTransport* transport, const WorldPosition& boardStop, const WorldPosition& exitDock);
+        static void RideLeave(PlayerbotAI* ai, const char* reason);
+
+        static bool TransportAtStop(GenericTransport* transport, WorldPosition& stopPosition);
+
+        static bool RouteRideStops(TravelPath& path, uint32 entry, WorldPosition& boardStop, WorldPosition& exitStop, WorldPosition& exitDock);
+
+        static bool WanderOnDeck(PlayerbotAI* ai, GenericTransport* transport);
 
         bool ChaseTo(WorldObject *obj, float distance = 0.0f, float angle = 0.0f);
         bool MoveNear(uint32 mapId, float x, float y, float z, float distance = sPlayerbotAIConfig.contactDistance);

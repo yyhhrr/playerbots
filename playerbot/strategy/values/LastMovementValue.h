@@ -4,6 +4,42 @@
 
 namespace ai
 {
+    enum class TransportRideState : uint8
+    {
+        NONE = 0,
+        RIDE = 1
+    };
+
+    struct TransportRide
+    {
+        TransportRideState state = TransportRideState::NONE;
+        uint32 entry = 0;
+        ObjectGuid guid;
+        uint32 startMs = 0;
+        uint32 budgetMs = 0;
+        WorldPosition boardStop;
+        WorldPosition exitStop;
+        WorldPosition exitDock;
+        uint32 nextWanderMs = 0;
+        uint32 routeLostMs = 0;
+
+        bool active() const { return state == TransportRideState::RIDE; }
+
+        void clear()
+        {
+            state = TransportRideState::NONE;
+            entry = 0;
+            guid = ObjectGuid();
+            startMs = 0;
+            budgetMs = 0;
+            boardStop = WorldPosition();
+            exitStop = WorldPosition();
+            exitDock = WorldPosition();
+            nextWanderMs = 0;
+            routeLostMs = 0;
+        }
+    };
+
     class LastMovement
     {
     public:
@@ -19,6 +55,11 @@ namespace ai
             lastFollow = other.lastFollow;
             lastAreaTrigger = other.lastAreaTrigger;
             lastTransportEntry = other.lastTransportEntry;
+            boardStop = other.boardStop;
+            boardEntry = other.boardEntry;
+            boardDeadlineMs = other.boardDeadlineMs;
+            boardWaitMs = other.boardWaitMs;
+            ride = other.ride;
             lastFlee = other.lastFlee;
             lastPath = other.lastPath;
             lastMoveShort = other.lastMoveShort;
@@ -38,6 +79,11 @@ namespace ai
             lastFollow = NULL;
             lastAreaTrigger = 0;
             lastTransportEntry = 0;
+            boardStop = WorldPosition();
+            boardEntry = 0;
+            boardWaitMs = 0;
+            boardDeadlineMs = 0;
+            ride.clear();
             lastFlee = 0;
             lastMoveShort = WorldPosition();
             lastFleeTo = WorldPosition();
@@ -64,6 +110,11 @@ namespace ai
         Unit* lastFollow;
         uint32 lastAreaTrigger;
         uint32 lastTransportEntry;
+        WorldPosition boardStop;
+        uint32 boardEntry;
+        uint32 boardWaitMs;
+        uint32 boardDeadlineMs;
+        TransportRide ride;
         time_t lastFlee;
         WorldPosition lastFleeTo;
         TravelPath lastPath;

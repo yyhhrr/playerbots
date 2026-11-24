@@ -645,8 +645,10 @@ void TestRegistry::GenerateTransportTestsImpl(int maxTests)
             while (HasTest(testName))
                 testName = "movement_transport_" + transportName + "_" + startName + "_" + endName + "_" + std::to_string(dedupe++);
 
+            const uint32 arrivalRadius = (uint32)std::min(100.0f, std::max(8.0f, startDockPos.distance(endDockPos) * 0.4f));
+
             std::ostringstream reachCheck;
-            reachCheck << "monitor distance to " << endName << " < 100 => pass \"Bot arrived at " << endName << " after <time elapsed>\"";
+            reachCheck << "monitor distance to " << endName << " < " << arrivalRadius << " => pass \"Bot arrived at " << endName << " after <time elapsed>\"";
 
             std::ostringstream timeout;
             timeout << "monitor time > " << timeoutSecs << " => fail \"Timeout: bot did not reach the other side after <time elapsed> (traveled <distance traveled> / wanted <distance wanted>)\"";
@@ -674,6 +676,40 @@ void TestRegistry::GenerateTransportTestsImpl(int maxTests)
             script.push_back(gmVisible);
 
             RegisterTest(testName, script);
+
+            float minRideSecs = rideSecs * 0.6f;
+            if (minRideSecs < 3.0f)
+                minRideSecs = 3.0f;
+
+            std::ostringstream m1Rode;
+            m1Rode << "monitor arrived " << endName << " < " << arrivalRadius << " rode >= " << (uint32)minRideSecs
+                   << " => pass \"Bot rode to " << endName << " after <time elapsed>\"";
+
+            std::ostringstream m1NoRide;
+            m1NoRide << "monitor arrived " << endName << " < " << arrivalRadius << " rode < " << (uint32)minRideSecs
+                     << " => fail \"Arrived at " << endName << " without riding for " << (uint32)minRideSecs << "s\"";
+
+            std::vector<std::string> m1Script = {
+                gmInvisible,
+                needAlive,
+                needCanReachNode,
+                timeout.str(),
+                m1Rode.str(),
+                m1NoRide.str(),
+                "monitor left transport away from dock => fail \"Left the transport away from a stop after <time elapsed>\"",
+                "set transport mode 1"
+            };
+
+            if (!factionReq.empty())
+                m1Script.push_back(factionReq);
+
+            m1Script.push_back("teleport " + startName);
+            m1Script.push_back("set destination " + endName);
+            m1Script.push_back("observe");
+            m1Script.push_back(gmVisible);
+            m1Script.push_back("cleanup set transport mode default");
+
+            RegisterTest(testName + "_m1", m1Script);
 
             if (skippedLog < 300)
             {

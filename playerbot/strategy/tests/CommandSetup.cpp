@@ -9,6 +9,9 @@
 #include "TestRegistry.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/LootObjectStack.h"
+#include "playerbot/RandomPlayerbotMgr.h"
+#include "playerbot/strategy/actions/MovementActions.h"
+#include "Entities/Transports.h"
 
 using namespace ai;
 
@@ -22,7 +25,7 @@ TestResult CommandSetupTeleport::Execute(const std::string& params, Player* bot,
         return TestResult::IMPOSSIBLE;
     }
 
-    if (bot->TeleportTo(loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z, bot->GetOrientation()))
+    if (PlayerbotAI::TeleportSafe(bot, loc.mapid, loc.coord_x, loc.coord_y, loc.coord_z, bot->GetOrientation()))
     {
         return TestResult::PASS;
     }
@@ -358,7 +361,7 @@ TestResult CommandSetupTeleportGroup::Execute(const std::string& params, Player*
             const uint32 fromMap = m->GetMapId();
             const bool wasInWorld = m->IsInWorld();
             const bool wasTeleporting = m->IsBeingTeleported();
-            const bool moved = m->TeleportTo(mapId, x, y, z, orient);
+            const bool moved = PlayerbotAI::TeleportSafe(m, mapId, x, y, z, orient);
 
             // BL-44: record the members that were ACTUALLY delivered (moved=true). The "group on map"
             // monitor switches to causal mode when this sink is non-empty, so a member that roams to
@@ -779,5 +782,91 @@ TestResult CommandRequireCreatureAlive::Execute(const std::string& params, Playe
     out << "Creature " << entry << " (" << (creature->GetName() ? creature->GetName() : "?")
         << ") alive at " << (uint32)bot->GetDistance(creature) << " yd";
     message = out.str();
+    return TestResult::PASS;
+}
+
+namespace
+{
+    std::string TrimSpaces(const std::string& value)
+    {
+        const size_t begin = value.find_first_not_of(" \t");
+
+        if (begin == std::string::npos)
+            return "";
+
+        const size_t end = value.find_last_not_of(" \t");
+        return value.substr(begin, end - begin + 1);
+    }
+}
+
+TestResult CommandSetupTransportMode::Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message)
+{
+    const std::string value = TrimSpaces(params);
+
+    if (value == "default" || value == "none" || value == "off")
+    {
+        sRandomPlayerbotMgr.SetValue(bot, "transport_mode", 0, "", 0);
+        return TestResult::PASS;
+    }
+
+    if (value.size() != 1 || value[0] < '0' || value[0] > '2')
+    {
+        message = "Invalid transport mode: '" + value + "' (expected 0, 1, 2 or default)";
+        return TestResult::IMPOSSIBLE;
+    }
+
+    sRandomPlayerbotMgr.SetValue(bot, "transport_mode", (uint32)(value[0] - '0') + 1, "", 0x7FFFFFFF);
+    return TestResult::PASS;
+}
+
+TestResult CommandSetupBoardTransport::Execute(const std::string& params, Player* bot, PlayerbotAI* ai, TestContext& ctx, std::string& message)
+{
+    const std::string value = TrimSpaces(params);
+    uint32 entry = 0;
+
+    if (value != "nearest" && !value.empty())
+    {
+        if (value.find_first_not_of("0123456789") != std::string::npos)
+        {
+            message = "Invalid transport entry: '" + value + "' (expected an entry or nearest)";
+            return TestResult::IMPOSSIBLE;
+        }
+
+        entry = (uint32)atol(value.c_str());
+    }
+
+    WorldPosition botPos(bot);
+    std::set<GenericTransport*> found = entry ? botPos.getTransports(entry) : botPos.getTransports();
+
+    GenericTransport* nearest = nullptr;
+    float nearestDistance = 0.0f;
+
+    for (GenericTransport* transport : found)
+    {
+        const float distance = botPos.distance(transport);
+
+        if (!nearest || distance < nearestDistance)
+        {
+            nearest = transport;
+            nearestDistance = distance;
+        }
+    }
+
+    if (!nearest || nearestDistance > 150.0f)
+        return TestResult::PENDING;
+
+    if (bot->GetTransport() == nearest)
+        return TestResult::PASS;
+
+    WorldPosition stop;
+
+    Transport* scheduled = dynamic_cast<Transport*>(nearest);
+
+    if (scheduled && !scheduled->GetKeyFrames().empty() && !MovementAction::TransportAtStop(nearest, stop))
+        return TestResult::PENDING;
+
+    if (!MovementAction::MoveOnTransport(ai, nearest, true, stop, WorldPosition()))
+        return TestResult::PENDING;
+
     return TestResult::PASS;
 }

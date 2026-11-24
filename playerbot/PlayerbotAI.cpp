@@ -52,6 +52,8 @@
 #include "strategy/values/LootValues.h"
 #include "strategy/values/AttackersValue.h"
 #include "Entities/Transports.h"
+#include "playerbot/TransportTrace.h"
+#include "strategy/actions/MovementActions.h"
 #include "Guilds/GuildMgr.h"
 #include "Chat/ChannelMgr.h"
 #include "PlayerbotLLMInterface.h"
@@ -291,7 +293,10 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     AiObjectContext* context = aiObjectContext;
     std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
     auto pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAI " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
-    
+
+    if (NeedsVehicleDetach(bot))
+        DetachFromVehicle(bot);
+
     if(aiInternalUpdateDelay > elapsed)
     {
         aiInternalUpdateDelay -= elapsed;
@@ -594,6 +599,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         else if (bot->GetTransport())
         {
             WorldPosition botPos(bot);
+            ai::TransportTrace::instance().Event(bot, bot->GetTransport(), "ride", "eject_guard", "master_transport_mismatch");
             bot->GetTransport()->RemovePassenger(bot);
             bot->NearTeleportTo(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z, bot->m_movementInfo.pos.o);
             MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
@@ -601,17 +607,28 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
     else if (!HasRealPlayerMaster() && !bot->IsBeingTeleported() && bot->GetTransport() && bot->GetMapId() == bot->GetTransport()->GetMapId() && !WorldPosition(bot).isOnTransport(bot->GetTransport()) && !isMovingToTransport)
     {
-        if (HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+        if (MovementAction::IsRiding(this))
         {
-            TellPlayer(GetMaster(), "Jumping off " + std::string(bot->GetTransport()->GetName()));
+            ai::TransportTrace::instance().Event(bot, bot->GetTransport(), "ride", "eject_guard", "vmap_ray_miss");
         }
+        else
+        {
+            if (HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+            {
+                TellPlayer(GetMaster(), "Jumping off " + std::string(bot->GetTransport()->GetName()));
+            }
 
-        WorldPosition botPos(bot);
-        bot->GetTransport()->RemovePassenger(bot);
-        bot->NearTeleportTo(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z, bot->m_movementInfo.pos.o);
-        MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
-        bot->StopMoving();
+            ai::TransportTrace::instance().Event(bot, bot->GetTransport(), "ride", "eject_guard", "vmap_ray_miss");
+
+            WorldPosition botPos(bot);
+            bot->GetTransport()->RemovePassenger(bot);
+            bot->NearTeleportTo(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z, bot->m_movementInfo.pos.o);
+            MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
+            bot->StopMoving();
+        }
     }
+
+    MovementAction::RideUpdate(this);
 
     // Alterac capture interruption and route recovery must also run while the
     // ordinary engine is waiting for a cast or an accepted movement command.
@@ -1531,6 +1548,121 @@ void PlayerbotAI::UpdateAIInternal(uint32 elapsed, bool minimal)
 
 	DoNextAction(minimal);
     LogKillEvents();
+}
+
+bool PlayerbotAI::IsDrivingVehicle(Player* player)
+{
+#ifdef MANGOSBOT_TWO
+    TransportInfo* transportInfo = player->GetTransportInfo();
+    if (!transportInfo || !transportInfo->IsOnVehicle())
+        return false;
+
+    VehicleInfo* vehicleInfo = static_cast<Unit*>(transportInfo->GetTransport())->GetVehicleInfo();
+    if (!vehicleInfo)
+        return false;
+
+    VehicleSeatEntry const* seat = vehicleInfo->GetSeatForPassenger(player);
+    return seat && seat->HasFlag(SEAT_FLAG_CAN_CONTROL);
+#else
+    return false;
+#endif
+}
+
+bool PlayerbotAI::NeedsVehicleDetach(Player* player)
+{
+    if (!IsDrivingVehicle(player))
+        return false;
+
+#ifdef MANGOSBOT_TWO
+    return !static_cast<Unit*>(player->GetTransportInfo()->GetTransport())->GetCharmInfo();
+#else
+    return false;
+#endif
+}
+
+bool PlayerbotAI::DetachFromVehicle(Player* player)
+{
+#ifdef MANGOSBOT_TWO
+    TransportInfo* transportInfo = player->GetTransportInfo();
+    if (!transportInfo || !transportInfo->IsOnVehicle())
+        return false;
+
+    Unit* vehicle = static_cast<Unit*>(transportInfo->GetTransport());
+    if (!vehicle)
+        return false;
+
+    VehicleInfo* vehicleInfo = vehicle->GetVehicleInfo();
+    if (!vehicleInfo || !vehicleInfo->GetSeatForPassenger(player))
+        return false;
+
+    bool const charmInfoMissing = !vehicle->GetCharmInfo();
+    uint32 const vehicleFlags = vehicle->GetUInt32Value(UNIT_FIELD_FLAGS);
+    uint8 const vehiclePvpFlag = vehicle->GetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG);
+    bool const vehicleWalking = vehicle->IsWalking();
+
+    if (charmInfoMissing)
+        vehicle->InitCharmInfo(vehicle);
+
+    vehicleInfo->UnBoard(player, false);
+    vehicle->RemoveSpellsCausingAura(SPELL_AURA_CONTROL_VEHICLE, player->GetObjectGuid());
+    player->RemoveSpellsCausingAura(SPELL_AURA_CONTROL_VEHICLE);
+
+    if (!charmInfoMissing)
+        return true;
+
+    auto restoreFlag = [vehicle, vehicleFlags](uint32 flag)
+    {
+        if (vehicleFlags & flag)
+            vehicle->SetFlag(UNIT_FIELD_FLAGS, flag);
+        else
+            vehicle->RemoveFlag(UNIT_FIELD_FLAGS, flag);
+    };
+
+    restoreFlag(UNIT_FLAG_PLAYER_CONTROLLED);
+    restoreFlag(UNIT_FLAG_IMMUNE_TO_PLAYER);
+    restoreFlag(UNIT_FLAG_IMMUNE_TO_NPC);
+
+    vehicle->SetByteValue(UNIT_FIELD_BYTES_2, UNIT_BYTES_2_OFFSET_PVP_FLAG, vehiclePvpFlag);
+
+    if (vehicle->IsCreature() && vehicle->IsWalking() != vehicleWalking)
+        static_cast<Creature*>(vehicle)->SetWalk(vehicleWalking, true);
+
+    vehicle->DeleteCharmInfo();
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool PlayerbotAI::TeleportSafe(Player* who, uint32 mapId, float x, float y, float z, float o, uint32 options)
+{
+    if (!who)
+        return false;
+
+    if (IsDrivingVehicle(who))
+        DetachFromVehicle(who);
+
+    return who->TeleportTo(mapId, x, y, z, o, options);
+}
+
+bool PlayerbotAI::TeleportSafe(Player* who, WorldPosition const& pos, uint32 options)
+{
+    return TeleportSafe(who, pos.getMapId(), pos.getX(), pos.getY(), pos.getZ(), pos.getO(), options);
+}
+
+bool PlayerbotAI::IsTeleportSpell(uint32 spellId)
+{
+    if (spellId == 8690 || spellId == 556)
+        return true;
+
+    SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
+    if (!spellInfo)
+        return false;
+
+    if (!IsSpellHaveEffect(spellInfo, SPELL_EFFECT_TELEPORT_UNITS) && !IsSpellHaveEffect(spellInfo, SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER))
+        return false;
+
+    return sSpellMgr.GetSpellTargetPosition(spellId) != nullptr;
 }
 
 void PlayerbotAI::HandleTeleportAck()
@@ -5215,6 +5347,12 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 
     if (!target)
         target = bot;
+
+    if (target == bot && IsDrivingVehicle(bot) && IsTeleportSpell(spellId))
+    {
+        DetachFromVehicle(bot);
+        StopMoving();
+    }
 
     Pet* pet = bot->GetPet();
     if (pet && pet->HasSpell(spellId))

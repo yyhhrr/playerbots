@@ -4,6 +4,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "strategy/values/LastMovementValue.h"
+#include "strategy/actions/MovementActions.h"
 #include "Accounts/AccountMgr.h"
 #include "Globals/ObjectMgr.h"
 #include "Database/DatabaseEnv.h"
@@ -767,6 +768,7 @@ void RandomPlayerbotMgr::LogPlayerLocation()
     if (sPlayerbotAIConfig.hasLog("transport.csv"))
     {
         sPlayerbotAIConfig.openLog("transport.csv", "w");
+        sPlayerbotAIConfig.log("transport.csv", "ts,name,entry,point,o,mapId,guid,passengers");
         for (auto& [mapId, map] : sMapMgr.Maps())
         {
             for (auto& transport : WorldPosition::getTransports(*map))
@@ -784,9 +786,12 @@ void RandomPlayerbotMgr::LogPlayerLocation()
                 out << transport->GetEntry() << ",";
                 out << std::fixed << std::setprecision(2);
                 WorldPosition(transport).printWKT(out);
-                out << transport->GetOrientation();
+                out << transport->GetOrientation() << ",";
+                out << transport->GetMapId() << ",";
+                out << transport->GetGUIDLow() << ",";
+                out << transport->GetPassengers().size();
 
-                sPlayerbotAIConfig.log("transport.csv", out.str().c_str());
+                sPlayerbotAIConfig.log("transport.csv", "%s", out.str().c_str());
             }
         }
     }
@@ -1203,7 +1208,7 @@ void RandomPlayerbotMgr::LoginFreeBots()
                     const float masterDistance = sameMap ? bot->GetDistance(master) : -1.0f;
                     if (!sameMap || masterDistance > INTERACTION_DISTANCE)
                     {
-                        bot->TeleportTo(WorldPosition(master));
+                        PlayerbotAI::TeleportSafe(bot, WorldPosition(master));
                     }
                 }
 
@@ -2895,7 +2900,7 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>&
                 bot->SetHomebindToLocation(loc, area->ID);
 
             bot->GetMotionMaster()->Clear();
-            bot->TeleportTo(loc.mapid, x, y, z, 0);
+            PlayerbotAI::TeleportSafe(bot, loc.mapid, x, y, z, 0);
             bot->SendHeartBeat();
             bot->GetPlayerbotAI()->Reset(true);
 
@@ -2916,7 +2921,7 @@ void RandomPlayerbotMgr::RandomTeleport(Player* bot, std::vector<WorldLocation>&
                         member->SetHomebindToLocation(loc, area->ID);
 
                     member->GetMotionMaster()->Clear();
-                    member->TeleportTo(loc.mapid, x, y, z, 0);
+                    PlayerbotAI::TeleportSafe(member, loc.mapid, x, y, z, 0);
                     member->SendHeartBeat();
                     if (PlayerbotAI* memberAi = member->GetPlayerbotAI())
                         memberAi->Reset(true);
@@ -3236,6 +3241,9 @@ void RandomPlayerbotMgr::RandomTeleportForLevel(Player* bot, bool activeOnly)
 void RandomPlayerbotMgr::RandomTeleport(Player* bot)
 {
     if (bot->InBattleGround())
+        return;
+
+    if (bot->GetTransport() && bot->GetPlayerbotAI() && MovementAction::IsRiding(bot->GetPlayerbotAI()))
         return;
 
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "RandomTeleport");
@@ -4571,7 +4579,7 @@ std::list<std::string> RandomPlayerbotMgr::HandleConsoleTaxTest(std::string para
 
     if (bot->GetMapId() != start->map_id)
     {
-        bot->TeleportTo(start->map_id, start->x, start->y, start->z, bot->GetOrientation());
+        PlayerbotAI::TeleportSafe(bot, start->map_id, start->x, start->y, start->z, bot->GetOrientation());
         messages.push_back("taxtest: teleported to start map; rerun the command");
         return messages;
     }

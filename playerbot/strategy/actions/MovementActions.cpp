@@ -1187,6 +1187,8 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
 
     const uint32 now = WorldTimer::getMSTime();
 
+    constexpr float landingTolerance = 3.0f;
+    const bool elevator = IsElevator(transport);
     WorldPosition waitSpot = dockPosition;
     bool elevatorSpot = false;
 
@@ -1199,7 +1201,7 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         waitSpot = lastMove.boardSpot;
         elevatorSpot = true;
     }
-    else if (strictGate && transport && !wrongStop && IsElevator(transport)
+    else if (strictGate && elevator && !wrongStop
         && ElevatorWaitSpot(transport, boardStop, botPos, waitSpot))
     {
         elevatorSpot = true;
@@ -1213,10 +1215,14 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
     }
 
     const float waitSpotDist = sqrt(botPos.sqDistance2d(waitSpot));
-    const bool atBoardSpot = elevatorSpot ? waitSpotDist <= 3.0f : atDock;
+    const bool atBoardSpot = elevatorSpot ? waitSpotDist <= landingTolerance : atDock;
+    // Without a terrain landing, the dock node can sit several yards above the floor.
+    const float heightTolerance = elevatorSpot ? landingTolerance : 6.0f;
+    const bool atLandingHeight = !elevator || std::abs(botPos.getZ() - waitSpot.getZ()) <= heightTolerance;
 
-    const bool canBoard = transport && (strictGate ? (!wrongStop && atBoardSpot && TransportDockedAt(transport, boardStop))
-                                                   : dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE);
+    const bool canBoard = transport && atLandingHeight
+        && (strictGate ? (!wrongStop && atBoardSpot && TransportDockedAt(transport, boardStop))
+                       : dockDistanceSq(transport) < INTERACTION_DISTANCE * INTERACTION_DISTANCE);
 
     if (canBoard)
     {
@@ -1268,6 +1274,12 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         lastMove.boardSpot = WorldPosition();
         lastMove.boardSpotStop = WorldPosition();
 
+        if (!atLandingHeight)
+        {
+            lastMove.lastPath.clear();
+            return false;
+        }
+
         if (sawRide)
             lastMove.lastPath.cutTo(lastRideNode, true);
 
@@ -1279,13 +1291,32 @@ bool MovementAction::UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition d
         return false;
     }
 
-    if (strictGate && transport && !wrongStop && !atBoardSpot)
+    if (strictGate && transport && !wrongStop && (!atBoardSpot || !atLandingHeight))
     {
         *approaching = true;
 
+        if (!atLandingHeight)
+        {
+            TransportTrace::instance().Event(bot, transport, "wait", "wait_for_dock", "wrong_landing_height" + diag, waitSpot, exitPosition);
+            if (elevatorSpot && bot->IsStopped() && ai->CanMove())
+            {
+                const auto path = waitSpot.getPathStepFrom(botPos, bot, true);
+                if (waitSpot.isPathTo(path, landingTolerance, landingTolerance))
+                {
+                    auto points = waitSpot.toPointsArray(path);
+#ifndef MANGOSBOT_TWO
+                    bot->GetMotionMaster()->MovePath(points, FORCED_MOVEMENT_RUN, false, false);
+#else
+                    bot->GetMotionMaster()->MovePath(points, FORCED_MOVEMENT_RUN, false);
+#endif
+                }
+            }
+            return false;
+        }
+
         TransportTrace::instance().Event(bot, transport, "wait", "wait_for_dock", (elevatorSpot ? "walking_to_board_landing" : "walking_to_board") + diag, waitSpot, exitPosition);
 
-        if (waitSpotDist > 3.0f)
+        if (waitSpotDist > landingTolerance)
             PlayerbotAI::TeleportSafe(bot, waitSpot);
 
         return false;

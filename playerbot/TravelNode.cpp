@@ -3602,8 +3602,6 @@ void TravelNodeMap::loadNodeStore()
             sLog.outErrorDb(">> Error loading travelNode paths.");
         }
 
-        //Hotfix inverses transport paths. No longer needed if using db data after (todo date when refreshing next nodes)
-
         for (auto& node : getNodes())
         {
             for (auto& [endNode, path] : *node->getPaths())
@@ -3611,6 +3609,20 @@ void TravelNodeMap::loadNodeStore()
                 if (path.getPathType() != TravelNodePathType::transport)
                     continue;
 
+                // Older stores can have duplicate or missing points on elevator ride links.
+                // Use the stop nodes, as for newly generated links.
+                const uint64 entry = path.getPathObject();
+                if (entry && node->getMapId() == endNode->getMapId())
+                {
+                    GameObjectInfo const* info = sGOStorage.LookupEntry<GameObjectInfo>(entry);
+                    if (info && info->type == GAMEOBJECT_TYPE_TRANSPORT)
+                    {
+                        path.setPath({ *node->getPosition(), *endNode->getPosition() });
+                        continue;
+                    }
+                }
+
+                // Repair reversed paths for other transports.
                 if (path.getPath().empty())
                     continue;
 

@@ -304,6 +304,12 @@ bool CastEnchantItemAction::isPossible()
     return GetSpellID() && AI_VALUE2(Item*, "item for spell", GetSpellID());
 }
 
+bool CastHealingSpellAction::isPossible()
+{
+    Unit* target = GetTarget();
+    return target && (target == bot || sServerFacade.IsWithinLOSInMap(bot, target)) && CastAuraSpellAction::isPossible();
+}
+
 bool CastAoeHealSpellAction::isUseful()
 {
     return CastSpellAction::isUseful();

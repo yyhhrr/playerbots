@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "GenericActions.h"
+#include "PetAutocastAction.h"
 #include "playerbot/PlayerbotFactory.h"
 
 using namespace ai;
@@ -407,6 +408,7 @@ bool SetPetAction::Execute(Event& event)
                     };
 
                     const bool autocastActive = IsAutocastActive();
+                    PetAutocastAction::ApplyDefaults(ai, pet, spellId);
                     pet->ToggleAutocast(spellId, !autocastActive);
 
                     std::ostringstream out;

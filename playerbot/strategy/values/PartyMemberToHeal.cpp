@@ -43,8 +43,23 @@ bool compareByMissingHealth(const Unit* u1, const Unit* u2, bool incomingDamage 
 
 ObjectGuid PartyMemberToHeal::Calculate()
 {
-    std::vector<Unit*> needHeals;
-    std::vector<Unit*> tankTargets;
+    std::vector<Unit*> visibleHeals;
+    std::vector<Unit*> blockedUrgentHeals;
+    std::vector<Unit*> visibleStandby;
+    const bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
+    auto addHealTarget = [&](Unit* target, float health)
+    {
+        if (sServerFacade.IsWithinLOSInMap(bot, target))
+        {
+            auto& targets = health < sPlayerbotAIConfig.almostFullHealth ? visibleHeals : visibleStandby;
+            targets.push_back(target);
+        }
+        else if (health < sPlayerbotAIConfig.lowHealth)
+        {
+            blockedUrgentHeals.push_back(target);
+        }
+    };
+
     if (bot->GetSelectionGuid())
     {
         Unit* target = ai->GetUnit(bot->GetSelectionGuid());
@@ -54,92 +69,57 @@ ObjectGuid PartyMemberToHeal::Calculate()
             target->GetHealthPercent() < 100 && 
             Check(target))
         {
-            needHeals.push_back(target);
+            addHealTarget(target, target->GetHealthPercent());
         }
     }
 
     if (GuidPosition rpgTarget = AI_VALUE(GuidPosition, "rpg target"))
     {
         Unit* target = rpgTarget.GetCreature(bot->GetInstanceId());
-        if (target && sServerFacade.IsFriendlyTo(bot, target) && target->GetHealthPercent() < 100)
+        if (target && target->IsInMap(bot) && sServerFacade.IsAlive(target) &&
+            sServerFacade.IsFriendlyTo(bot, target) && target->GetHealthPercent() < 100)
         {
             LootObject loot = AI_VALUE(LootObject, "loot target");
 
             if (!loot.IsLootPossible(bot))
             {
-
-                needHeals.push_back(target);
+                addHealTarget(target, target->GetHealthPercent());
             }
         }
     }
 
     const std::vector<Player*> partyMembers = GetPartyMembers();
-    if (partyMembers.empty() && needHeals.empty())
+    IsTargetOfHealingSpell predicate;
+    for (Player* player : partyMembers)
     {
-        return ObjectGuid();
-    }
+        if (!Check(player))
+            continue;
 
-    if (!partyMembers.empty() || !needHeals.empty())
-    {
-        IsTargetOfHealingSpell predicate;
-        for (Player* player : partyMembers)
+        // Do not heal dueling members or players who cannot receive healing.
+        if ((player->duel && player->duel->opponent) || player->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100)
+            continue;
+
+        const uint32 incomingDamage = preHealing ? getIncomingdamage(player) : 0;
+        const uint32 health = player->GetHealth();
+        const float healthPercent = (health - std::min(health, incomingDamage)) * 100.0f / player->GetMaxHealth();
+        if (ai->IsTank(player) || (healthPercent < sPlayerbotAIConfig.almostFullHealth && !IsTargetOfSpellCast(player, predicate)))
+            addHealTarget(player, healthPercent);
+
+        Pet* pet = player->GetPet();
+        if (pet && CanHealPet(pet) && Check(pet))
         {
-            if (!Check(player) || !sServerFacade.IsAlive(player))
-            {
-                continue;
-            }
-
-            bool isTank = ai->IsTank(player);
-
-            // do not heal dueling members
-            if (player->duel && player->duel->opponent)
-            {
-                continue;
-            }
-
-            // do not heal if they will not receive healing due to debuff
-            if (player->GetMaxNegativeAuraModifier(SPELL_AURA_MOD_HEALING_PCT) <= -100)
-                continue;
-
-            uint32 incomingDamage = 0;
-            if (ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT))
-                incomingDamage = getIncomingdamage(player);
-
-            uint8 health = (((player->GetHealth() - incomingDamage) * 100.0f) / player->GetMaxHealth());
-            if (isTank || (health < sPlayerbotAIConfig.almostFullHealth && !IsTargetOfSpellCast(player, predicate)))
-            { 
-                needHeals.push_back(player);
-            }
-
-            Pet* pet = player->GetPet();
-            // Pets go through the same range and line of sight check as their owners.
-            if (pet && CanHealPet(pet) && Check(pet))
-            {
-                health = pet->GetHealthPercent();
-                if (health < sPlayerbotAIConfig.almostFullHealth || !IsTargetOfSpellCast(player, predicate))
-                {
-                    needHeals.push_back(pet);
-                }
-            }
-
-            if (isTank && bot->IsInGroup(player))
-            {
-                tankTargets.push_back(player);
-            }
+            const float petHealth = pet->GetHealthPercent();
+            if (petHealth < sPlayerbotAIConfig.almostFullHealth || !IsTargetOfSpellCast(player, predicate))
+                addHealTarget(pet, petHealth);
         }
     }
 
-    if (needHeals.empty() && tankTargets.empty())
-    {
+    // Keep urgent obstructed targets available to the heal spell's reach action.
+    auto& needHeals = !visibleHeals.empty() ? visibleHeals
+        : !blockedUrgentHeals.empty() ? blockedUrgentHeals : visibleStandby;
+    if (needHeals.empty())
         return ObjectGuid();
-    }
 
-    if (needHeals.empty() && !tankTargets.empty())
-    {
-        needHeals = tankTargets;
-    }
-
-    bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
     sort(needHeals.begin(), needHeals.end(), [preHealing](const Unit* u1, const Unit* u2) { return compareByMissingHealth(u1, u2, preHealing); });
 
     int healerIndex = 0;
@@ -196,10 +176,7 @@ bool PartyMemberToHeal::Check(Unit* player)
     if (player->GetObjectGuid() == bot->GetObjectGuid())
         return false;
 
-    if (player->GetMapId() != bot->GetMapId())
-        return false;
-
-    if (!player->IsInWorld())
+    if (!player->IsInMap(bot) || !sServerFacade.IsAlive(player))
         return false;
                                                      
     if (sServerFacade.GetDistance2d(bot, player) > maxDist)
@@ -208,9 +185,6 @@ bool PartyMemberToHeal::Check(Unit* player)
     // Ignore players who have netherspite tank aura to avoid heal canceling
     NetherspiteFightStrategy* strategy = NetherspiteFightStrategy::Get(ai);
     if (strategy && player->HasAura(30421))
-        return false;
-
-    if (!sServerFacade.IsWithinLOSInMap(bot, player))
         return false;
 
     return true;

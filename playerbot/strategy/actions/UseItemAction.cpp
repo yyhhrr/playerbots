@@ -17,6 +17,7 @@
 using namespace ai;
 
 constexpr std::string_view LOS_GOS_PARAM = "los gos";
+constexpr uint32 POTION_COOLDOWN_CATEGORY = 4;
 
 SpellCastResult BotUseItemSpell::ForceSpellStart(SpellCastTargets const* targets, Aura* triggeredByAura)
 {
@@ -712,7 +713,11 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
             {
                 if (itemUsed == nullptr && ai->HasCheat(BotCheatMask::item))
                 {
-                    if (!HasItemCooldown(itemId))
+                    // Without a cast item, the core can start the shorter spell
+                    // cooldown first. Use the potion's shared item cooldown.
+                    const bool hasPotionItemCooldown = spellData.SpellCategory == POTION_COOLDOWN_CATEGORY
+                        && spellData.SpellCategoryCooldown > 0;
+                    if (hasPotionItemCooldown || !HasItemCooldown(itemId))
                     {
                         bot->RemoveSpellCooldown(*spellInfo, false);
                         bot->AddCooldown(*spellInfo, proto, false);

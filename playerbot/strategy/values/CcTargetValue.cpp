@@ -6,16 +6,37 @@
 #include "playerbot/strategy/Action.h"
 #include "playerbot/strategy/values/RtiTargetValue.h"
 
+#include <algorithm>
+
 using namespace ai;
+
+namespace
+{
+    bool IsAttackingCcTarget(Unit* attacker, Unit* target)
+    {
+        if (!attacker)
+            return false;
+        if (attacker->GetVictim() == target)
+            return true;
+
+        for (CurrentSpellTypes slot : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL, CURRENT_AUTOREPEAT_SPELL })
+        {
+            Spell* cast = attacker->GetCurrentSpell(slot);
+            if (cast && cast->getState() != SPELL_STATE_FINISHED &&
+                cast->m_targets.getUnitTargetGuid() == target->GetObjectGuid() && !IsPositiveSpell(cast->m_spellInfo))
+                return true;
+        }
+
+        return false;
+    }
+}
 
 class FindTargetForCcStrategy : public FindTargetStrategy
 {
 public:
-    FindTargetForCcStrategy(PlayerbotAI* ai, std::string spell) : FindTargetStrategy(ai)
-    {
-        this->spell = spell;
-        maxDistance = sPlayerbotAIConfig.sightDistance;
-    }
+    FindTargetForCcStrategy(PlayerbotAI* ai, const std::string& spell) : FindTargetStrategy(ai),
+        spell(spell), maxDistance(sPlayerbotAIConfig.sightDistance),
+        dungeonPolymorph(spell == "polymorph" && ai->GetBot()->IsInWorld() && ai->GetBot()->GetMap()->IsDungeon()) {}
 
 public:
     virtual void CheckAttacker(Unit* creature, ThreatManager* threatManager)
@@ -24,7 +45,8 @@ public:
 
         AiObjectContext* context = ai->GetAiObjectContext();
 
-        if (ai->GetUnit(AI_VALUE(ObjectGuid,"rti cc target")) && ai->GetUnit(AI_VALUE(ObjectGuid,"rti cc target"))->GetObjectGuid() == creature->GetObjectGuid())
+        Unit* markedTarget = ai->GetUnit(AI_VALUE(ObjectGuid, "rti cc target"));
+        if (markedTarget == creature)
         {
             result = creature;
             return;
@@ -45,7 +67,12 @@ public:
         if (!group)
             return;
 
-        if (AI_VALUE(uint8,"aoe count") > 2)
+        if (dungeonPolymorph)
+        {
+            if (markedTarget || !creature->IsCreature() || creature->HasBreakableByDamageCrowdControlAura())
+                return;
+        }
+        else if (AI_VALUE(uint8,"aoe count") > 2)
         {
             WorldLocation aoe = AI_VALUE(WorldLocation,"aoe position");
             if (sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.GetDistance2d(creature, aoe.coord_x, aoe.coord_y), sPlayerbotAIConfig.aoeRadius))
@@ -58,52 +85,55 @@ public:
         if (!ai->CanCastSpell(spell, creature, true, nullptr, false, true))
             return;
 
-        // If we have rti cc none but have cc strategy, then we'll cc something that isn't occupied
-        std::string rti = AI_VALUE(std::string, "rti cc");
-        int index = RtiTargetValue::GetRtiIndex(rti);
-        if (index == -1 && ai->HasStrategy("cc", BotState::BOT_STATE_COMBAT))
+        // Dungeon mages can pick an unmarked add when the chosen icon is unused.
+        if (!ai->HasStrategy("cc", BotState::BOT_STATE_COMBAT) ||
+            (!dungeonPolymorph && RtiTargetValue::GetRtiIndex(AI_VALUE(std::string, "rti cc")) != -1))
+            return;
+
+        bool selectedByParty = false;
+        for (const Group::MemberSlot& slot : group->GetMemberSlots())
         {
-            Group::MemberSlotList const& groupSlot = group->GetMemberSlots();
-            for (Group::member_citerator itr = groupSlot.begin(); itr != groupSlot.end(); itr++)
+            Player* member = sObjectMgr.GetPlayer(slot.guid);
+            if (!member || member == bot || !sServerFacade.IsAlive(member) || bot->GetMapId() != member->GetMapId() ||
+                (dungeonPolymorph && bot->GetInstanceId() != member->GetInstanceId()))
+                continue;
+
+            PlayerbotAI* memberAI = member->GetPlayerbotAI();
+            AiObjectContext* memberContext = memberAI ? memberAI->GetAiObjectContext() : nullptr;
+            const bool selected = memberAI ? memberContext &&
+                memberContext->GetValue<ObjectGuid>("current target")->Get() == creature->GetObjectGuid() :
+                member->GetSelectionGuid() == creature->GetObjectGuid();
+            if (dungeonPolymorph)
             {
-                Player *member = sObjectMgr.GetPlayer(itr->guid);
-                if(!member || !sServerFacade.IsAlive(member) || member == bot || bot->GetMapId() != member->GetMapId())
-                    continue;
-
-                PlayerbotAI* memberAI = member->GetPlayerbotAI();
-                bool isBot = member->IsPlayer() && memberAI;
-                if (isBot)
-                {
-                    AiObjectContext* context = memberAI->GetAiObjectContext();
-                    // If someone else has this target as their current target, don't cc
-                    if (context && context->GetValue<ObjectGuid>("current target")->Get() == creature->GetObjectGuid())
-                        return;
-                }
-                else
-                {
-                    // If member is not a bot, check if they are targeting this
-                    if (member->GetSelectionGuid() == creature->GetObjectGuid())
-                        return;
-                }
-                if (!ai->IsTank(member))
-                    continue;
-
-                float distance = sServerFacade.GetDistance2d(member, creature);
-                if (distance < minDistance)
-                    minDistance = distance;
+                // A selection alone can be a tab target. Actual attacks would break the sheep.
+                if (IsAttackingCcTarget(member, creature) || IsAttackingCcTarget(member->GetPet(), creature))
+                    return;
+                selectedByParty |= selected;
             }
+            else if (selected)
+                return;
 
-            if ((!result && !creature->IsPlayer()) || minDistance > maxDistance)
-            {
-                result = creature;
-                maxDistance = minDistance;
-            }
+            if (ai->IsTank(member))
+                minDistance = std::min(minDistance, sServerFacade.GetDistance2d(member, creature));
+        }
+
+        if (dungeonPolymorph && result && selectedByParty && !resultSelectedByParty)
+            return;
+
+        if ((!result && !creature->IsPlayer()) || minDistance > maxDistance ||
+            (dungeonPolymorph && resultSelectedByParty && !selectedByParty))
+        {
+            result = creature;
+            maxDistance = minDistance;
+            resultSelectedByParty = selectedByParty;
         }
     }
 
 private:
     std::string spell;
     float maxDistance;
+    const bool dungeonPolymorph;
+    bool resultSelectedByParty = false;
 };
 
 ObjectGuid CcTargetValue::Calculate()

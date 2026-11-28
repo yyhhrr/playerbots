@@ -255,6 +255,13 @@ target_include_directories(mage_spacing_runtime_test PRIVATE "${CMAKE_CURRENT_BI
 target_compile_features(mage_spacing_runtime_test PRIVATE cxx_std_20)
 add_test(NAME mage_spacing_runtime COMMAND mage_spacing_runtime_test)
 
+extract_courage_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/strategy/values/CcTargetValue.cpp"
+    "\nnamespace" "ObjectGuid CcTargetValue::Calculate()" mage_dungeon_polymorph_selector.inc)
+add_executable(mage_dungeon_polymorph_test mage_dungeon_polymorph_test.cpp)
+target_include_directories(mage_dungeon_polymorph_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_features(mage_dungeon_polymorph_test PRIVATE cxx_std_20)
+add_test(NAME mage_dungeon_polymorph COMMAND mage_dungeon_polymorph_test)
+
 # Exercise the live Arathi threat scan, capture interruption/backoff, outer AI
 # wakeup and defender return action against a deterministic small battlefield.
 extract_dungeon_source("${CMAKE_CURRENT_SOURCE_DIR}/../playerbot/ArathiBasinTactics.cpp"

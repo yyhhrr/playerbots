@@ -98,6 +98,7 @@ tests
 !/tests/mage_aoe_courage_test.cpp
 !/tests/mage_pvp_retreat_test.cpp
 !/tests/mage_spacing_runtime_test.cpp
+!/tests/mage_dungeon_polymorph_test.cpp
 !/tests/enchanting_policy_test.cpp
 !/tests/enchanting_exchange_test.cpp
 !/tests/enchanting_runtime_test.cpp

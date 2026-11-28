@@ -3,6 +3,22 @@
 
 namespace ai
 {
+#ifdef MANGOSBOT_ZERO
+    class WarlockAoeTrigger : public Trigger
+    {
+    public:
+        WarlockAoeTrigger(PlayerbotAI* ai) : Trigger(ai, "warlock aoe opportunity") {}
+        bool IsActive() override;
+    };
+
+    class UnsafeWarlockAoeTrigger : public Trigger
+    {
+    public:
+        UnsafeWarlockAoeTrigger(PlayerbotAI* ai) : Trigger(ai, "unsafe warlock aoe") {}
+        bool IsActive() override;
+    };
+#endif
+
     DEFLECT_TRIGGER(ShadowWardTrigger, "shadow ward");
 
 	class DemonArmorTrigger : public BuffTrigger

@@ -1,0 +1,329 @@
+#include "playerbot/playerbot.h"
+#include "SpellAoeTargeting.h"
+#include "playerbot/strategy/mage/MageAoeGeometry.h"
+#include "playerbot/strategy/mage/MageAoePolicy.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "Grids/GridNotifiers.h"
+#include "Grids/GridNotifiersImpl.h"
+#include "Grids/CellImpl.h"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <set>
+
+using namespace ai;
+
+namespace
+{
+    using Point = MageAoeGeometry::Point;
+
+    Point GetPoint(const WorldObject* object)
+    {
+        return { object->GetPositionX(), object->GetPositionY(), object->GetPositionZ() };
+    }
+
+    float GetHitRadius(Player* bot, Unit* target, float radius)
+    {
+        // Match Spell's PUSH_DEST_CENTER and DynamicObjectUpdater: use raw 3D
+        // centres, adding only the core's allowed NPC combat-reach extension.
+        if (bot->IsControlledByPlayer() && !target->IsControlledByPlayer())
+            radius += target->GetCombatReach();
+        return radius;
+    }
+
+    bool CanHit(Player* bot, const Point& center, Unit* target, float radius, bool ignoreLos)
+    {
+        return MageAoeGeometry::IsWithinRadius(center, GetPoint(target), GetHitRadius(bot, target, radius)) &&
+            (ignoreLos || bot->GetMap()->IsInLineOfSight(center.x, center.y, center.z + 1.0f,
+                target->GetPositionX(), target->GetPositionY(),
+                target->GetPositionZ() + target->GetCollisionHeight(), false));
+    }
+
+    float GetDamageRadius(Player* bot, const SpellEntry* spell)
+    {
+        float radius = std::numeric_limits<float>::max();
+        for (uint32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; ++i)
+        {
+            if (spell->Effect[i] != SPELL_EFFECT_SCHOOL_DAMAGE &&
+                spell->Effect[i] != SPELL_EFFECT_PERSISTENT_AREA_AURA)
+                continue;
+
+            float effectRadius = GetSpellRadius(sSpellRadiusStore.LookupEntry(spell->EffectRadiusIndex[i]));
+            if (Player* owner = bot->GetSpellModOwner())
+                owner->ApplySpellMod(spell->Id, SPELLMOD_RADIUS, effectRadius, false);
+
+            // If effects have different footprints, require the counted group
+            // to fit in all damaging parts of the spell.
+            if (effectRadius > 0.0f)
+                radius = std::min(radius, effectRadius);
+        }
+
+        return radius == std::numeric_limits<float>::max() ? 0.0f : radius;
+    }
+
+    class OwnGroundSpellCheck
+    {
+    public:
+        OwnGroundSpellCheck(Player* bot, float range, uint32 spellId) : bot(bot), range(range), spellId(spellId) {}
+        WorldObject const& GetFocusObject() const { return *bot; }
+        bool operator()(DynamicObject* object) const
+        {
+            return object && object->GetCasterGuid() == bot->GetObjectGuid() &&
+                object->GetDuration() > 0 && object->GetRadius() > 0.0f &&
+                sSpellMgr.GetFirstSpellInChain(object->GetSpellId()) == spellId &&
+                bot->IsWithinDistInMap(object, range);
+        }
+
+    private:
+        Player* bot;
+        float range;
+        uint32 spellId;
+    };
+
+    bool AlreadyCovered(Player* bot, const std::vector<Unit*>& targets,
+        const std::list<DynamicObject*>& existing)
+    {
+        size_t covered = 0;
+        for (Unit* target : targets)
+        {
+            for (DynamicObject* object : existing)
+            {
+                if (CanHit(bot, GetPoint(object), target, object->GetRadius(), false))
+                {
+                    ++covered;
+                    break;
+                }
+            }
+        }
+
+        // Permit a new pack/area, but don't shift the centre slightly just to
+        // keep recasting on the same burning group. Other casters do not count.
+        return IsMageFlamestrikeCovered(covered, targets.size());
+    }
+}
+
+bool ai::FindGroundAoeTarget(PlayerbotAI* ai, uint32 spellId, GroundAoeTarget& result,
+    size_t minimumTargets, bool avoidExistingArea)
+{
+    result = GroundAoeTarget();
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    if (!bot || !bot->IsAlive() ||
+        !bot->IsInWorld() || bot->IsBeingTeleported() || !spell)
+        return false;
+
+    float radius = GetDamageRadius(bot, spell);
+    float maxRange = GetSpellMaxRange(sSpellRangeStore.LookupEntry(spell->rangeIndex));
+    if (Player* owner = bot->GetSpellModOwner())
+        owner->ApplySpellMod(spell->Id, SPELLMOD_RANGE, maxRange, false);
+    if (radius <= 0.0f || maxRange <= 0.0f)
+        return false;
+
+    const bool ignoreLos = spell->HasAttribute(SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT);
+    AiObjectContext* context = ai->GetAiObjectContext();
+    std::vector<Unit*> targets;
+    std::vector<Point> points;
+    std::set<ObjectGuid> seen;
+    float maxHitRadius = radius;
+    // Include frozen combat targets: generic 'possible attack targets' can
+    // discard Frost Nova roots even though Blizzard is meant to hit them.
+    const std::list<ObjectGuid> attackers = context->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+    for (const ObjectGuid& guid : attackers)
+    {
+        if (!seen.insert(guid).second)
+            continue;
+        Unit* target = ai->GetUnit(guid);
+        // The attackers list already validates combat against the bot or its group.
+        // Requiring personal threat again prevents AOE from starting on tank-held packs.
+        if (!target || !ai->IsSafe(target) || !target->IsAlive() ||
+            target->HasBreakableByDamageCrowdControlAura() ||
+            target->IsAOEImmune() || target->IsTaxiFlying() ||
+            (target->IsCreature() && static_cast<Creature*>(target)->IsTotem()) ||
+            !bot->CanAttackSpell(target, spell, true) ||
+            !PossibleAttackTargetsValue::IsValid(target, bot, maxRange + radius, true, false) ||
+            target->IsImmuneToDamage(GetSpellSchoolMask(spell)))
+            continue;
+
+        bool immune = false;
+        for (uint32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; ++i)
+        {
+            if ((spell->Effect[i] == SPELL_EFFECT_SCHOOL_DAMAGE ||
+                spell->Effect[i] == SPELL_EFFECT_PERSISTENT_AREA_AURA) &&
+                (target->IsImmuneToSpell(spell, false, uint8(1 << i), bot) ||
+                 target->IsImmuneToSpellEffect(spell, SpellEffectIndex(i), false)))
+                immune = true;
+        }
+        if (immune)
+            continue;
+
+        targets.push_back(target);
+        points.push_back(GetPoint(target));
+        maxHitRadius = std::max(maxHitRadius, GetHitRadius(bot, target, radius));
+    }
+
+    if (targets.size() < minimumTargets)
+        return false;
+
+    std::vector<Unit*> protectedTargets;
+    const std::list<ObjectGuid> nearby = context->GetValue<std::list<ObjectGuid>>("possible targets no los")->Get();
+    for (const ObjectGuid& guid : nearby)
+    {
+        Unit* target = ai->GetUnit(guid);
+        if (target && ai->IsSafe(target) && target->IsAlive() && target->HasBreakableByDamageCrowdControlAura())
+            protectedTargets.push_back(target);
+    }
+
+    std::list<DynamicObject*> existing;
+    if (avoidExistingArea)
+    {
+        const float searchRange = maxRange + radius * 2.0f;
+        OwnGroundSpellCheck check(bot, searchRange, sSpellMgr.GetFirstSpellInChain(spellId));
+        MaNGOS::DynamicObjectListSearcher<OwnGroundSpellCheck> searcher(existing, check);
+        Cell::VisitAllObjects((const WorldObject*)bot, searcher, searchRange);
+    }
+
+    const Point caster = GetPoint(bot);
+    std::vector<Point> centers = MageAoeGeometry::BuildCandidates(points, caster, radius, maxRange);
+    if (maxHitRadius > radius)
+    {
+        const std::vector<Point> reachCenters = MageAoeGeometry::BuildCandidates(points, caster, maxHitRadius, maxRange);
+        centers.insert(centers.end(), reachCenters.begin(), reachCenters.end());
+    }
+    float bestDistance = std::numeric_limits<float>::max();
+    for (Point center : centers)
+    {
+        bot->UpdateAllowedPositionZ(center.x, center.y, center.z);
+        if (!MageAoeGeometry::IsWithinRadius(caster, center, maxRange) ||
+            (!ignoreLos && !bot->IsWithinLOS(center.x, center.y, center.z + 1.0f)))
+            continue;
+
+        std::vector<Unit*> covered;
+        for (Unit* target : targets)
+        {
+            if (MageAoeGeometry::IsWithinRadius(center, GetPoint(target), GetHitRadius(bot, target, radius)))
+                covered.push_back(target);
+        }
+        if (covered.size() < minimumTargets || covered.size() < result.targets.size())
+            continue;
+
+        covered.erase(std::remove_if(covered.begin(), covered.end(), [&](Unit* target)
+        {
+            return !CanHit(bot, center, target, radius, ignoreLos);
+        }), covered.end());
+        if (covered.size() < minimumTargets || covered.size() < result.targets.size())
+            continue;
+
+        const bool breaksControl = std::any_of(protectedTargets.begin(), protectedTargets.end(), [&](Unit* target)
+        {
+            return CanHit(bot, center, target, radius, ignoreLos);
+        });
+        if (breaksControl || (avoidExistingArea && AlreadyCovered(bot, covered, existing)))
+            continue;
+
+        const float dx = center.x - caster.x;
+        const float dy = center.y - caster.y;
+        const float dz = center.z - caster.z;
+        const float distance = dx * dx + dy * dy + dz * dz;
+        if (covered.size() == result.targets.size() && distance >= bestDistance)
+            continue;
+
+        result.position = WorldLocation(bot->GetMapId(), center.x, center.y, center.z, 0.0f);
+        result.radius = radius;
+        result.targets.clear();
+        for (Unit* target : covered)
+            result.targets.push_back(target->GetObjectGuid());
+        bestDistance = distance;
+    }
+
+    return result.targets.size() >= minimumTargets;
+}
+
+bool ai::IsSpellAoeAreaSafe(PlayerbotAI* ai, uint32 spellId, float x, float y, float z)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(spellId);
+    const Point center{ x, y, z };
+    if (!bot || !bot->IsAlive() || !bot->IsInWorld() || !spell || !MageAoeGeometry::IsFinite(center))
+        return false;
+    const float radius = GetDamageRadius(bot, spell);
+    if (radius <= 0.0f)
+        return false;
+    const bool ignoreLos = spell->HasAttribute(SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT);
+    const Point caster = GetPoint(bot);
+    const float dx = x - caster.x, dy = y - caster.y, dz = z - caster.z;
+    const float scanRange = std::sqrt(dx * dx + dy * dy + dz * dz) + radius;
+
+    std::list<Unit*> nearby;
+    MaNGOS::AnyUnitInObjectRangeCheck check(bot, scanRange);
+    MaNGOS::UnitListSearcher<MaNGOS::AnyUnitInObjectRangeCheck> searcher(nearby, check);
+    Cell::VisitAllObjects(bot, searcher, scanRange);
+    for (Unit* target : nearby)
+    {
+        if (target && target->IsAlive() && target->HasBreakableByDamageCrowdControlAura() &&
+            bot->CanAttackSpell(target, spell, true) && CanHit(bot, center, target, radius, ignoreLos))
+            return false;
+    }
+    return true;
+}
+
+Unit* ai::FindCloseAoeTarget(PlayerbotAI* ai, uint32 damageSpellId, float radiusLimit, size_t minimumTargets)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!bot || !bot->IsAlive() || !bot->IsInWorld() || bot->IsBeingTeleported())
+        return nullptr;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    const SpellEntry* spell = sServerFacade.LookupSpellInfo(damageSpellId);
+    if (!spell)
+        return nullptr;
+
+    const float radius = GetDamageRadius(bot, spell);
+    if (radius <= 0.0f)
+        return nullptr;
+    const float countRadius = std::min(radiusLimit, radius);
+    const bool ignoreLos = spell->HasAttribute(SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT);
+    const Point center = GetPoint(bot);
+
+    std::set<ObjectGuid> seen;
+    Unit* spellTarget = nullptr;
+    size_t count = 0;
+    bool hasAggro = false;
+    // Combat against the group counts too, but at least one nearby foe must
+    // actually target the mage. Frost Nova roots must not hide the pack.
+    const std::list<ObjectGuid> attackers = context->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+    for (const ObjectGuid& guid : attackers)
+    {
+        if (!seen.insert(guid).second)
+            continue;
+        Unit* target = ai->GetUnit(guid);
+        if (!target || !ai->IsSafe(target) || target->IsPlayer() || !target->IsAlive() ||
+            target->HasBreakableByDamageCrowdControlAura() || target->IsAOEImmune() || target->IsTaxiFlying() ||
+            (target->IsCreature() && static_cast<Creature*>(target)->IsTotem()) ||
+            !bot->CanAttackSpell(target, spell, true) ||
+            !PossibleAttackTargetsValue::IsValid(target, bot, countRadius, true, false) ||
+            target->IsImmuneToDamage(GetSpellSchoolMask(spell)) || !CanHit(bot, center, target, countRadius, ignoreLos))
+            continue;
+
+        bool immune = false;
+        for (uint32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; ++i)
+        {
+            if (spell->Effect[i] == SPELL_EFFECT_SCHOOL_DAMAGE &&
+                (target->IsImmuneToSpell(spell, false, uint8(1 << i), bot) ||
+                 target->IsImmuneToSpellEffect(spell, SpellEffectIndex(i), false)))
+                immune = true;
+        }
+        if (immune)
+            continue;
+
+        if (!spellTarget)
+            spellTarget = target;
+        ++count;
+        hasAggro = hasAggro || target->GetVictim() == bot;
+    }
+    if (!hasAggro || count < minimumTargets)
+        return nullptr;
+
+    // Check every live unit in the blast, including sheep outside combat lists.
+    return IsSpellAoeAreaSafe(ai, damageSpellId, center.x, center.y, center.z) ? spellTarget : nullptr;
+}

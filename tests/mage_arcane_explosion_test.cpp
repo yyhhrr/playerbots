@@ -215,9 +215,11 @@ bool CanHit(Player* bot, Point center, Unit* target, float radius, bool ignoreLo
 namespace ai
 {
     Unit* FindMageArcaneExplosionTarget(PlayerbotAI*, bool levelingOnly = false);
-    bool IsMageAoeAreaSafe(PlayerbotAI*, uint32, float, float, float);
+    bool IsSpellAoeAreaSafe(PlayerbotAI*, uint32, float, float, float);
+    Unit* FindCloseAoeTarget(PlayerbotAI*, uint32, float, size_t);
 }
-#include "mage_aoe_area_safe.inc"
+#include "spell_aoe_area_safe.inc"
+#include "spell_aoe_close_target.inc"
 #include "mage_arcane_explosion_target.inc"
 
 struct Event {};
@@ -509,19 +511,19 @@ int main()
     {
         Fixture f;
         f.ai.context.attackers.data.clear();
-        Check(ai::IsMageAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
+        Check(ai::IsSpellAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
             "an ongoing fixed-area channel needs no new three-enemy pack");
         f.sheep.breakableCC = true; f.sheep.position = {25.0f, 0.0f, 0.0f};
-        Check(!ai::IsMageAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
+        Check(!ai::IsSpellAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
             "a sheep at a remote current destination remains protected outside the attack list");
         f.sheep.position.x = 2.0f;
-        Check(ai::IsMageAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
+        Check(ai::IsSpellAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
             "a sheep next to the caster does not cancel a distant safe channel");
         f.sheep.position = {35.01f, 0.0f, 0.0f};
-        Check(ai::IsMageAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
+        Check(ai::IsSpellAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
             "a sheep outside the current destination radius does not block commitment");
         f.sheep.position = {25.0f, 0.0f, 10.01f};
-        Check(ai::IsMageAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
+        Check(ai::IsSpellAoeAreaSafe(&f.ai, 10, 25.0f, 0.0f, 0.0f),
             "fixed-area safety uses three-dimensional separation from the actual destination");
     }
     std::cout << checks << " checks, " << failures << " failures\n";

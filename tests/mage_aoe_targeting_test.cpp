@@ -18,6 +18,8 @@ using Point = ai::MageAoeGeometry::Point;
 constexpr uint32 EFFECT_INDEX_0 = 0, EFFECT_INDEX_2 = 2;
 constexpr uint32 SPELL_EFFECT_SCHOOL_DAMAGE = 2, SPELL_EFFECT_PERSISTENT_AREA_AURA = 27;
 constexpr uint32 UNIT_FIELD_TARGET = 0;
+constexpr uint32 SPELL_ATTR_EX2_IGNORE_LINE_OF_SIGHT = 1;
+constexpr uint32 SPELLMOD_RANGE = 1;
 enum SpellEffectIndex { First, Second, Third };
 
 struct ObjectGuid
@@ -47,7 +49,9 @@ struct ThreatManager
 
 struct SpellEntry
 {
+    uint32 Id = 5740, rangeIndex = 4;
     std::array<uint32, 3> Effect{SPELL_EFFECT_PERSISTENT_AREA_AURA, 0, 0};
+    bool HasAttribute(uint32) const { return false; }
 };
 
 struct Unit
@@ -57,7 +61,7 @@ struct Unit
     bool alive = true, safe = true, legal = true, breakableCC = false;
     bool areaImmune = false, flying = false, totem = false;
     bool damageImmune = false, spellImmune = false, effectImmune = false;
-    bool unbreakableCC = false;
+    bool unbreakableCC = false, visible = true;
     ThreatManager manager;
     bool IsAlive() const { return alive; }
     bool HasBreakableByDamageCrowdControlAura() const { return breakableCC; }
@@ -74,14 +78,23 @@ struct Unit
     ThreatManager& getThreatManager() { return manager; }
 };
 using Creature = Unit;
+using WorldObject = Unit;
 
 struct Player : Unit
 {
     PlayerbotAI* ai = nullptr;
     Pet* pet = nullptr;
+    bool groundVisible = true;
     PlayerbotAI* GetPlayerbotAI() const { return ai; }
     Pet* GetPet() const { return pet; }
     bool CanAttackSpell(const Unit* unit, const SpellEntry*, bool) const { return unit->legal; }
+    bool IsInWorld() const { return true; }
+    bool IsBeingTeleported() const { return false; }
+    Player* GetSpellModOwner() const { return nullptr; }
+    void ApplySpellMod(uint32, uint32, float&, bool) {}
+    void UpdateAllowedPositionZ(float, float, float& z) const { z = 0.0f; }
+    bool IsWithinLOS(float, float, float) const { return groundVisible; }
+    unsigned GetMapId() const { return 1; }
 };
 
 struct GuidListValue
@@ -96,6 +109,9 @@ struct AiObjectContext
 };
 struct PlayerbotAI
 {
+    Player* GetBot() const { return bot; }
+    AiObjectContext* GetAiObjectContext() { return &context; }
+    Player* bot = nullptr;
     AiObjectContext context;
     std::map<uint32, Unit*> units;
     Unit* GetUnit(ObjectGuid guid) { return units.contains(guid.value) ? units.at(guid.value) : nullptr; }
@@ -107,6 +123,8 @@ struct PlayerbotAI
 
 struct ServerFacade
 {
+    SpellEntry spell;
+    const SpellEntry* LookupSpellInfo(uint32 id) const { return id ? &spell : nullptr; }
     ThreatManager& GetThreatManager(Unit* unit) const { return unit->manager; }
 } sServerFacade;
 
@@ -136,9 +154,51 @@ float GetHitRadius(Player*, Unit*, float radius) { return radius; }
 uint32 GetSpellSchoolMask(const SpellEntry*) { return 1; }
 bool CanHit(Player*, Point center, Unit* target, float radius, bool)
 {
-    return ai::MageAoeGeometry::IsWithinRadius(center, target->position, radius);
+    return target->visible && ai::MageAoeGeometry::IsWithinRadius(center, target->position, radius);
 }
-bool AlreadyCovered(Player*, const std::vector<Unit*>&, const std::list<int>&) { return false; }
+using DynamicObject = int;
+bool AlreadyCovered(Player*, const std::vector<Unit*>&, const std::list<DynamicObject*>&) { return false; }
+
+struct WorldLocation
+{
+    unsigned mapId = 0;
+    float coord_x = 0, coord_y = 0, coord_z = 0, orientation = 0;
+};
+struct OwnGroundSpellCheck { OwnGroundSpellCheck(Player*, float, uint32) {} };
+namespace MaNGOS
+{
+    template <class Check> struct DynamicObjectListSearcher
+    {
+        DynamicObjectListSearcher(std::list<DynamicObject*>&, Check&) {}
+    };
+}
+namespace Cell
+{
+    template <class Searcher> void VisitAllObjects(const WorldObject*, Searcher&, float) {}
+}
+struct SpellRangeStore
+{
+    float LookupEntry(uint32) const { return 30.0f; }
+} sSpellRangeStore;
+struct SpellManager
+{
+    uint32 GetFirstSpellInChain(uint32 id) const { return id; }
+} sSpellMgr;
+float GetSpellMaxRange(float range) { return range; }
+float GetDamageRadius(Player*, const SpellEntry*) { return 8.0f; }
+
+namespace ai
+{
+    struct GroundAoeTarget
+    {
+        WorldLocation position;
+        std::vector<ObjectGuid> targets;
+        float radius = 0.0f;
+    };
+    bool FindGroundAoeTarget(PlayerbotAI*, uint32, GroundAoeTarget&, size_t, bool = false);
+}
+using namespace ai;
+#include "spell_aoe_ground_target.inc"
 
 std::vector<Unit*> CollectTargets(Player* bot, PlayerbotAI* ai)
 {
@@ -159,9 +219,9 @@ bool CanPlaceWithoutBreakingCC(Player* bot, PlayerbotAI* ai, Point center)
     AiObjectContext* context = &ai->context;
 #include "mage_aoe_protected_targets.inc"
     const float radius = 10.0f;
-    const bool ignoreLos = false, avoidExistingFlamestrike = false;
+    const bool ignoreLos = false, avoidExistingArea = false;
     const std::vector<Unit*> covered;
-    const std::list<int> existing;
+    const std::list<DynamicObject*> existing;
     for (int once : {0})
     {
 #include "mage_aoe_protection.inc"
@@ -181,6 +241,7 @@ int main()
 {
     Player mage, tank;
     PlayerbotAI ai;
+    ai.bot = &mage;
     mage.ai = &ai;
     mage.position = {0.0f, 0.0f, 0.0f};
     Unit first, second, third, idle, sheep;
@@ -237,6 +298,25 @@ int main()
     Check(!CanPlaceWithoutBreakingCC(&mage, &ai, first.position), "AOE placement cannot hit a sheep beside the tank-held pack");
     sheep.position = {60.0f, 0.0f, 0.0f};
     Check(CanPlaceWithoutBreakingCC(&mage, &ai, first.position), "distant sheep does not forbid an unrelated pack");
+
+    GroundAoeTarget rain;
+    for (Unit* target : pack)
+        target->position = {37.0f, 0.0f, 0.0f};
+    Check(FindGroundAoeTarget(&ai, 5740, rain, 3) && rain.targets.size() == 3 &&
+        MageAoeGeometry::IsWithinRadius(mage.position,
+            {rain.position.coord_x, rain.position.coord_y, rain.position.coord_z}, 30.0f),
+        "Rain of Fire can cover three targets at a destination inside its 30-yard range");
+    third.position.x = 39.0f;
+    Check(!FindGroundAoeTarget(&ai, 5740, rain, 3), "a third enemy outside the real spell footprint cannot start Rain of Fire");
+    third.position.x = 37.0f;
+    third.visible = false;
+    Check(!FindGroundAoeTarget(&ai, 5740, rain, 3), "a third enemy behind terrain cannot start Rain of Fire");
+    third.visible = true;
+    mage.groundVisible = false;
+    Check(!FindGroundAoeTarget(&ai, 5740, rain, 3), "Rain of Fire requires line of sight to its destination");
+    mage.groundVisible = true;
+    sheep.position = third.position;
+    Check(!FindGroundAoeTarget(&ai, 5740, rain, 3), "Rain of Fire does not start when every useful landing breaks sheep");
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures ? 1 : 0;
 }

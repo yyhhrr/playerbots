@@ -5,6 +5,27 @@
 
 using namespace ai;
 
+#ifdef MANGOSBOT_ZERO
+bool WarlockAoeTrigger::IsActive()
+{
+    if (context->GetValue<std::list<ObjectGuid>>("attackers")->Get().size() < WarlockAoeMinimumTargets)
+        return false;
+
+    for (const char* name : { "rain of fire", "hellfire" })
+    {
+        const uint32 spellId = AI_VALUE2(uint32, "spell id", name);
+        if (spellId && sServerFacade.IsSpellReady(bot, spellId))
+            return true;
+    }
+    return false;
+}
+
+bool UnsafeWarlockAoeTrigger::IsActive()
+{
+    return ShouldStopWarlockAoe(ai);
+}
+#endif
+
 bool DemonArmorTrigger::IsActive() 
 {
 	Unit* target = GetTarget();

@@ -93,6 +93,9 @@ void WarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 void WarlockStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitReactionTriggers(triggers);
+    triggers.push_back(new TriggerNode(
+        "unsafe warlock aoe",
+        NextAction::array(0, new NextAction("stop warlock aoe", ACTION_EMERGENCY + 1), NULL)));
 }
 
 void WarlockStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
@@ -185,8 +188,9 @@ void WarlockAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("corruption on attacker", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "ranged high aoe",
-        NextAction::array(0, new NextAction("rain of fire", ACTION_HIGH), NULL)));
+        "warlock aoe opportunity",
+        NextAction::array(0, new NextAction("hellfire", ACTION_HIGH + 5),
+            new NextAction("rain of fire", ACTION_HIGH + 4), NULL)));
 }
 
 void WarlockAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

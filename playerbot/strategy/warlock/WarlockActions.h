@@ -5,6 +5,11 @@
 
 namespace ai
 {
+#ifdef MANGOSBOT_ZERO
+    struct GroundAoeTarget;
+    constexpr size_t WarlockAoeMinimumTargets = 3;
+    bool ShouldStopWarlockAoe(PlayerbotAI* ai);
+#endif
 	SNARE_ACTION(CastDeathCoilSnareAction, "death coil");
 	ENEMY_HEALER_ACTION(CastDeathCoilOnHealerAction, "death coil");
 	SPELL_ACTION(CastDeathCoilAction, "death coil");
@@ -436,7 +441,42 @@ namespace ai
     {
     public:
         CastRainOfFireAction(PlayerbotAI* ai) : CastSpellAction(ai, "rain of fire") {}
+
+#ifdef MANGOSBOT_ZERO
+        bool isUseful() override;
+        bool isPossible() override;
+        bool Execute(Event& event) override;
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+
+    private:
+        std::string GetReachActionName() override { return ""; }
+        bool SelectTarget(GroundAoeTarget& target);
+#endif
     };
+
+#ifdef MANGOSBOT_ZERO
+    class CastHellfireAction : public CastSpellAction
+    {
+    public:
+        CastHellfireAction(PlayerbotAI* ai) : CastSpellAction(ai, "hellfire") {}
+        bool isUseful() override;
+        bool isPossible() override;
+        bool Execute(Event& event) override;
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+
+    private:
+        std::string GetTargetName() override { return "self target"; }
+        std::string GetReachActionName() override { return ""; }
+    };
+
+    class StopWarlockAoeAction : public Action
+    {
+    public:
+        StopWarlockAoeAction(PlayerbotAI* ai) : Action(ai, "stop warlock aoe") {}
+        bool Execute(Event& event) override;
+        bool ShouldReactionInterruptCast() const override { return false; }
+    };
+#endif
 
     class CastShadowfuryAction : public CastSpellAction
     {

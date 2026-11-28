@@ -200,6 +200,10 @@ namespace ai
                 creators["no spellstone"] = [](PlayerbotAI* ai) { return new HasSpellstoneTrigger(ai); };
                 creators["corruption"] = [](PlayerbotAI* ai) { return new CorruptionTrigger(ai); };
                 creators["corruption on attacker"] = [](PlayerbotAI* ai) { return new CorruptionOnAttackerTrigger(ai); };
+#ifdef MANGOSBOT_ZERO
+                creators["warlock aoe opportunity"] = [](PlayerbotAI* ai) { return new WarlockAoeTrigger(ai); };
+                creators["unsafe warlock aoe"] = [](PlayerbotAI* ai) { return new UnsafeWarlockAoeTrigger(ai); };
+#endif
                 creators["curse of agony"] = [](PlayerbotAI* ai) { return new CurseOfAgonyTrigger(ai); };
                 creators["curse of agony on attacker"] = [](PlayerbotAI* ai) { return new CurseOfAgonyOnAttackerTrigger(ai); };
                 creators["curse of doom"] = [](PlayerbotAI* ai) { return new CurseOfDoomTrigger(ai); };
@@ -298,6 +302,10 @@ namespace ai
                 creators["banish on cc"] = [](PlayerbotAI* ai) { return new CastBanishOnCcAction(ai); };
                 creators["seed of corruption"] = [](PlayerbotAI* ai) { return new CastSeedOfCorruptionAction(ai); };
                 creators["rain of fire"] = [](PlayerbotAI* ai) { return new CastRainOfFireAction(ai); };
+#ifdef MANGOSBOT_ZERO
+                creators["hellfire"] = [](PlayerbotAI* ai) { return new CastHellfireAction(ai); };
+                creators["stop warlock aoe"] = [](PlayerbotAI* ai) { return new StopWarlockAoeAction(ai); };
+#endif
                 creators["shadowfury"] = [](PlayerbotAI* ai) { return new CastShadowfuryAction(ai); };
                 creators["shadowfury on snare target"] = [](PlayerbotAI* ai) { return new CastShadowfurySnareAction(ai); };
                 creators["life tap"] = [](PlayerbotAI* ai) { return new CastLifeTapAction(ai); };

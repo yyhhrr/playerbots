@@ -1,19 +1,13 @@
 #pragma once
 
-#include "playerbot/strategy/Value.h"
+#include "playerbot/strategy/actions/SpellAoeTargeting.h"
 #include "MageAoePolicy.h"
-#include <vector>
 
 namespace ai
 {
     constexpr size_t MAGE_GROUND_AOE_MIN_TARGETS = MageAoeMinimumTargets;
 
-    struct MageAoeTarget
-    {
-        WorldLocation position;
-        std::vector<ObjectGuid> targets;
-        float radius = 0.0f;
-    };
+    struct MageAoeTarget : GroundAoeTarget {};
 
     // Count and cast at the same spell-specific, visible ground location.
     bool FindMageAoeTarget(PlayerbotAI* ai, uint32 spellId, MageAoeTarget& result,

@@ -16,8 +16,6 @@ namespace ai
 
         bool aiMaster = (ai->GetMaster() && ai->GetMaster()->GetPlayerbotAI());
 
-        ai->TellPlayer(player, BOT_TEXT("goodbye"), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_TALK, false);
-
         bool freeBot = sRandomPlayerbotMgr.IsFreeBot(bot);
 
         bool shouldStay = freeBot && bot->GetGroup() && player == bot;
@@ -31,9 +29,24 @@ namespace ai
             std::string member = bot->GetName();
             p << uint32(PARTY_OP_LEAVE) << member << uint32(0);
             bot->GetSession()->HandleGroupDisbandOpcode(p);
-            if (ai->HasRealPlayerMaster() && ai->GetMaster()->GetObjectGuid() != player->GetObjectGuid())
-                bot->Whisper("I left my group", LANG_UNIVERSAL, player->GetObjectGuid());
+
+            // Disband only handles a pending invitation if the bot started the group.
+            if (!bot->GetGroup() && bot->GetGroupInvite() && !bot->InBattleGround())
+            {
+                WorldPacket decline;
+                bot->GetSession()->HandleGroupDeclineOpcode(decline);
+            }
+
+            if (bot->GetGroup() || bot->GetGroupInvite())
+            {
+                ai->TellError(player, "I couldn't leave the group or clear its invitation.");
+                return false;
+            }
         }
+
+        ai->TellPlayer(player, BOT_TEXT("goodbye"), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_TALK, false);
+        if (!shouldStay && ai->HasRealPlayerMaster() && ai->GetMaster()->GetObjectGuid() != player->GetObjectGuid())
+            bot->Whisper("I left my group", LANG_UNIVERSAL, player->GetObjectGuid());
 
         if (freeBot)
         {

@@ -84,6 +84,7 @@ namespace ai
         virtual ItemUsage Calculate() override;
 
         static ItemUsage QueryItemUsageForEquip(ItemQualifier& itemQualifier, Player* bot);
+        static bool UsesCasterStaffComparison(Player* bot);
         static uint32 GetSmallestBagSize(Player* bot);
         static std::string ReasonForNeed(ItemUsage usage, ItemQualifier qualifier = ItemQualifier(), uint32 count = 1, Player* bot = nullptr);
         static uint32 GetAhDepositCost(ItemPrototype const* proto, uint32 count = 1);
@@ -126,6 +127,7 @@ namespace ai
         static double GetLevelPriceMultiplier(ItemPrototype const* proto);
 
         static bool MustEquipForQuest(ItemPrototype const* proto, Player* bot);
+        static Item* GetOffhandDisplacedByCasterStaff(Player* bot, const ItemPrototype* proto);
     public:
         static float CurrentStacks(PlayerbotAI* ai, ItemPrototype const* proto);
         static std::vector<uint32> SpellsUsingItem(uint32 itemId, Player* bot);

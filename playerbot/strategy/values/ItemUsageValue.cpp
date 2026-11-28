@@ -106,6 +106,8 @@ ItemUsage ItemUsageValue::Calculate()
     if (forceUsage == ForceItemUsage::FORCE_USAGE_EQUIP)
     {
         ItemUsage equip = QueryItemUsageForEquip(itemQualifier, bot);
+        if (equip == ItemUsage::ITEM_USAGE_KEEP && GetOffhandDisplacedByCasterStaff(bot, proto))
+            return equip;
         if (equip == ItemUsage::ITEM_USAGE_EQUIP || equip == ItemUsage::ITEM_USAGE_BAD_EQUIP || equip == ItemUsage::ITEM_USAGE_BROKEN_EQUIP)
             return equip;
         if (bot->CanUseItem(proto) == EQUIP_ERR_OK && proto->InventoryType != INVTYPE_NON_EQUIP)
@@ -552,6 +554,37 @@ if ((proto->Class == ITEM_CLASS_PROJECTILE ||
     return ItemUsage::ITEM_USAGE_NONE;
 }
 
+bool ItemUsageValue::UsesCasterStaffComparison(Player* bot)
+{
+    switch (bot->getClass())
+    {
+    case CLASS_MAGE:
+    case CLASS_WARLOCK:
+    case CLASS_PRIEST:
+        return true;
+    case CLASS_DRUID:
+    {
+        const std::string spec = sRandomItemMgr.GetPlayerSpecName(bot);
+        return spec == "balance" || spec == "resto";
+    }
+    case CLASS_SHAMAN:
+    {
+        const std::string spec = sRandomItemMgr.GetPlayerSpecName(bot);
+        return spec == "elem" || spec == "resto";
+    }
+    default:
+        return false;
+    }
+}
+
+Item* ItemUsageValue::GetOffhandDisplacedByCasterStaff(Player* bot, const ItemPrototype* proto)
+{
+    if (proto && proto->Class == ITEM_CLASS_WEAPON && proto->SubClass == ITEM_SUBCLASS_WEAPON_STAFF &&
+        proto->InventoryType == INVTYPE_2HWEAPON && UsesCasterStaffComparison(bot))
+        return bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    return nullptr;
+}
+
 ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, Player* bot)
 {
     PlayerbotAI* ai = bot->GetPlayerbotAI();
@@ -569,16 +602,28 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
         return ItemUsage::ITEM_USAGE_NONE;
 
     uint16 dest;
+    Item* displacedOffhand = GetOffhandDisplacedByCasterStaff(bot, itemProto);
+    if (displacedOffhand)
+    {
+        const ItemPrototype* offhandProto = displacedOffhand->GetProto();
+        if (MustEquipForQuest(offhandProto, bot) ||
+            AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", offhandProto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) == ForceItemUsage::FORCE_USAGE_EQUIP)
+            return ItemUsage::ITEM_USAGE_KEEP;
+    }
+
+    // The core's non-direct check rejects two-handers whenever an offhand is
+    // present. The direct check verifies that it can actually be put away.
+    const bool checkOffhandSwap = displacedOffhand != nullptr;
 
     std::list<Item*> items = AI_VALUE2(std::list<Item*>, "inventory items", chat->formatItem(itemQualifier));
     InventoryResult result;
     if (!items.empty())
     {
-        result = bot->CanEquipItem(NULL_SLOT, dest, items.front(), true, false);
+        result = bot->CanEquipItem(NULL_SLOT, dest, items.front(), true, checkOffhandSwap);
     }
     else
     {
-        result = RandomPlayerbotMgr::CanEquipUnseenItem(bot, NULL_SLOT, dest, itemProto->ItemId);
+        result = RandomPlayerbotMgr::CanEquipUnseenItem(bot, NULL_SLOT, dest, itemProto->ItemId, checkOffhandSwap);
     }
 
     if (result != EQUIP_ERR_OK)
@@ -660,6 +705,11 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
         shouldEquip = false;
 
     Item* oldItem = bot->GetItemByPos(dest);
+    if (!oldItem && displacedOffhand)
+    {
+        oldItem = displacedOffhand;
+        displacedOffhand = nullptr;
+    }
     uint8 slot = dest & 255;
 
     ai->TellDebug(ai->GetMaster(), "Checking equip: " + chat->formatItem(itemProto) + " to " + chat->formatSlot(slot) + " vs " + (oldItem ? chat->formatItem(oldItem->GetProto()) : "empty"), "debug equip");
@@ -706,15 +756,27 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
 
     if (AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", oldItemProto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) == ForceItemUsage::FORCE_USAGE_EQUIP) //Current equip is forced. Do not unequip.
     {
+        if (checkOffhandSwap)
+            return ItemUsage::ITEM_USAGE_KEEP;
         if (AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", itemProto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) == ForceItemUsage::FORCE_USAGE_EQUIP)
             return ItemUsage::ITEM_USAGE_KEEP;
         else
             return ItemUsage::ITEM_USAGE_NONE;
     }
 
-    const bool replacesPoorGear = oldItemProto->Quality < ITEM_QUALITY_NORMAL && shouldEquip;
-    uint32 oldStatWeight = sRandomItemMgr.ItemStatWeight(bot, oldItem);
-    if (replacesPoorGear)
+    const bool replacesPoorGear = !checkOffhandSwap && oldItemProto->Quality < ITEM_QUALITY_NORMAL && shouldEquip;
+    const auto isBroken = [](Item* item)
+    {
+        return item && item->GetUInt32Value(ITEM_FIELD_DURABILITY) == 0 && item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY) > 0;
+    };
+    const bool oldMainItemBroken = isBroken(oldItem);
+    const bool oldOffhandBroken = isBroken(displacedOffhand);
+    uint64 oldStatWeight = checkOffhandSwap && oldMainItemBroken ? 0 : sRandomItemMgr.ItemStatWeight(bot, oldItem);
+    if (displacedOffhand && !oldOffhandBroken)
+        oldStatWeight += sRandomItemMgr.ItemStatWeight(bot, displacedOffhand);
+    if (checkOffhandSwap)
+        shouldEquip = shouldEquip && statWeight > oldStatWeight;
+    else if (replacesPoorGear)
         shouldEquip = true;
     else if (statWeight && oldStatWeight)
     {
@@ -738,14 +800,14 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     bool isBetter = false;
     if (replacesPoorGear || statWeight > oldStatWeight)
         isBetter = true;
-    else if (statWeight == oldStatWeight && itemProto->Quality > oldItemProto->Quality)
+    else if (!checkOffhandSwap && statWeight == oldStatWeight && itemProto->Quality > oldItemProto->Quality)
         isBetter = true;
-    else if (statWeight == oldStatWeight && itemProto->Quality == oldItemProto->Quality && itemProto->ItemLevel > oldItemProto->ItemLevel)
+    else if (!checkOffhandSwap && statWeight == oldStatWeight && itemProto->Quality == oldItemProto->Quality && itemProto->ItemLevel > oldItemProto->ItemLevel)
         isBetter = true;
 
     Item* item = CurrentItem(itemProto, bot);
-    bool itemIsBroken = item && item->GetUInt32Value(ITEM_FIELD_DURABILITY) == 0 && item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY) > 0;
-    bool oldItemIsBroken = oldItem->GetUInt32Value(ITEM_FIELD_DURABILITY) == 0 && oldItem->GetUInt32Value(ITEM_FIELD_MAXDURABILITY) > 0;
+    const bool itemIsBroken = isBroken(item);
+    const bool oldItemIsBroken = oldMainItemBroken && (!displacedOffhand || oldOffhandBroken);
     if (itemProto->ItemId != oldItemProto->ItemId && (shouldEquip || !existingShouldEquip) && isBetter)
     {
         switch (itemProto->Class)
@@ -824,6 +886,12 @@ std::string ItemUsageValue::ReasonForNeed(ItemUsage usage, ItemQualifier qualifi
 
         uint32 currentStatWeight = sRandomItemMgr.ItemStatWeight(bot, currentItem);
         uint32 newStatWeight = sRandomItemMgr.ItemStatWeight(bot, qualifier);
+        if (Item* offhand = GetOffhandDisplacedByCasterStaff(bot, qualifier.GetProto()); offhand && offhand != currentItem)
+        {
+            if (offhand->GetUInt32Value(ITEM_FIELD_DURABILITY) || !offhand->GetUInt32Value(ITEM_FIELD_MAXDURABILITY))
+                currentStatWeight += sRandomItemMgr.ItemStatWeight(bot, offhand);
+            placeholders["%current"] += " + " + ChatHelper::formatItem(offhand);
+        }
         placeholders["%cPower"] = std::to_string(currentStatWeight);
         placeholders["%nPower"] = std::to_string(newStatWeight);
         if (newStatWeight && currentStatWeight)
@@ -1118,14 +1186,14 @@ Item* ItemUsageValue::CurrentItem(ItemPrototype const* proto, Player* bot)
 Item* ItemUsageValue::CurrentItemInSlot(ItemPrototype const* proto, Player* bot)
 {
     uint16 dest;
-
-    InventoryResult result;
-    result = RandomPlayerbotMgr::CanEquipUnseenItem(bot, NULL_SLOT, dest, proto->ItemId);
+    Item* displacedOffhand = GetOffhandDisplacedByCasterStaff(bot, proto);
+    InventoryResult result = RandomPlayerbotMgr::CanEquipUnseenItem(bot, NULL_SLOT, dest, proto->ItemId, displacedOffhand != nullptr);
 
     if (result != EQUIP_ERR_OK)
         return nullptr;
 
-    return bot->GetItemByPos(dest);    
+    Item* equipped = bot->GetItemByPos(dest);
+    return equipped ? equipped : displacedOffhand;
 }
 
 float ItemUsageValue::CurrentStacks(PlayerbotAI* ai, ItemPrototype const* proto)

@@ -5,6 +5,7 @@
 #include <iostream>
 #include <list>
 #include <string>
+#include <utility>
 #include <vector>
 
 using uint8 = std::uint8_t;
@@ -13,15 +14,16 @@ using uint32 = std::uint32_t;
 using uint64 = std::uint64_t;
 using int32 = std::int32_t;
 
-// Simulate a warrior's main hand and bag; compile the real usage decision below.
+// Simulate weapon slots and a bag; compile the real usage decision below.
 enum { ITEM_QUALITY_POOR, ITEM_QUALITY_NORMAL };
-enum { INVTYPE_NON_EQUIP, INVTYPE_WEAPON, INVTYPE_TABARD };
+enum { INVTYPE_NON_EQUIP, INVTYPE_WEAPON, INVTYPE_TABARD, INVTYPE_2HWEAPON, INVTYPE_HOLDABLE, INVTYPE_SHIELD };
 enum { ITEM_CLASS_CONTAINER, ITEM_CLASS_WEAPON, ITEM_CLASS_ARMOR, ITEM_CLASS_QUIVER };
 enum { ITEM_SUBCLASS_CONTAINER, ITEM_SUBCLASS_AMMO_POUCH };
-enum { CLASS_WARRIOR = 1, CLASS_HUNTER = 3, NULL_SLOT = 255 };
+enum { CLASS_WARRIOR = 1, CLASS_HUNTER = 3, CLASS_PRIEST = 5, CLASS_SHAMAN = 7, CLASS_MAGE = 8, CLASS_WARLOCK = 9, CLASS_DRUID = 11, NULL_SLOT = 255 };
+enum { INVENTORY_SLOT_BAG_0 = 255, EQUIPMENT_SLOT_MAINHAND = 15, EQUIPMENT_SLOT_OFFHAND = 16 };
 enum { ITEM_FIELD_DURABILITY, ITEM_FIELD_MAXDURABILITY };
 enum class WeaponAttackType { RANGED_ATTACK };
-enum ItemSubclassWeapon { ITEM_SUBCLASS_WEAPON_GUN, ITEM_SUBCLASS_WEAPON_BOW, ITEM_SUBCLASS_WEAPON_CROSSBOW };
+enum ItemSubclassWeapon { ITEM_SUBCLASS_WEAPON_GUN, ITEM_SUBCLASS_WEAPON_BOW, ITEM_SUBCLASS_WEAPON_CROSSBOW, ITEM_SUBCLASS_WEAPON_STAFF };
 enum InventoryResult { EQUIP_ERR_OK, EQUIP_ERR_CANT_USE_ITEM };
 enum class ItemUsage { ITEM_USAGE_NONE, ITEM_USAGE_EQUIP, ITEM_USAGE_BAD_EQUIP, ITEM_USAGE_BROKEN_EQUIP, ITEM_USAGE_KEEP };
 enum class ForceItemUsage { FORCE_USAGE_NONE, FORCE_USAGE_EQUIP };
@@ -46,9 +48,10 @@ struct Item
     int32 randomProperty = 0;
     std::array<uint32, 4> gems{};
     uint32 socket = 0;
+    bool broken = false;
 
     const ItemPrototype* GetProto() const { return proto; }
-    uint32 GetUInt32Value(uint32) const { return 1; }
+    uint32 GetUInt32Value(uint32 field) const { return field == ITEM_FIELD_DURABILITY && broken ? 0 : 1; }
 };
 using Bag = Item;
 
@@ -68,6 +71,7 @@ struct ItemQualifier
 struct AiObjectContext
 {
     std::list<Item*> inventory;
+    uint32 forcedItem = 0;
 };
 
 struct ChatHelper
@@ -93,30 +97,41 @@ struct Player
 {
     PlayerbotAI ai;
     Item* mainHand = nullptr;
+    Item* offHand = nullptr;
+    const ItemPrototype* unseenItem = nullptr;
+    uint8 clazz = CLASS_WARRIOR;
+    std::string spec;
     bool proficiency = true;
+    bool offhandStorage = true;
 
     PlayerbotAI* GetPlayerbotAI() { return &ai; }
-    uint8 getClass() const { return CLASS_WARRIOR; }
+    uint8 getClass() const { return clazz; }
     InventoryResult CanUseItem(const ItemPrototype* proto) const { return proto && proficiency ? EQUIP_ERR_OK : EQUIP_ERR_CANT_USE_ITEM; }
-    InventoryResult CanEquipItem(uint8, uint16& dest, Item*, bool, bool) const
+    InventoryResult CanEquipItem(uint8, uint16& dest, Item* item, bool, bool directAction) const
     {
-        dest = 15;
+        const ItemPrototype* proto = item ? item->GetProto() : unseenItem;
+        if (proto && proto->InventoryType == INVTYPE_2HWEAPON && offHand && (!directAction || !offhandStorage))
+            return EQUIP_ERR_CANT_USE_ITEM;
+        dest = EQUIPMENT_SLOT_MAINHAND;
         return EQUIP_ERR_OK;
     }
     Item* GetWeaponForAttack(WeaponAttackType, bool, bool) const { return nullptr; }
     Item* GetItemByPos(uint16) const { return mainHand; }
+    Item* GetItemByPos(uint8, uint8 slot) const { return slot == EQUIPMENT_SLOT_OFFHAND ? offHand : mainHand; }
 };
 
 struct RandomPlayerbotMgr
 {
-    static InventoryResult CanEquipUnseenItem(Player* bot, uint8 slot, uint16& dest, uint32)
+    static InventoryResult CanEquipUnseenItem(Player* bot, uint8 slot, uint16& dest, uint32, bool directAction)
     {
-        return bot->CanEquipItem(slot, dest, nullptr, true, false);
+        return bot->CanEquipItem(slot, dest, nullptr, true, directAction);
     }
 };
 
 struct ItemUsageValue
 {
+    static bool UsesCasterStaffComparison(Player*);
+    static Item* GetOffhandDisplacedByCasterStaff(Player*, const ItemPrototype*);
     static ItemUsage QueryItemUsageForEquip(ItemQualifier&, Player*);
     static uint32 GetSmallestBagSize(Player*) { return 0; }
     static bool MustEquipForQuest(const ItemPrototype*, Player*) { return false; }
@@ -127,6 +142,7 @@ struct ItemUsageValue
 struct RandomItemMgr
 {
     unsigned enchantLookups = 0;
+    std::string GetPlayerSpecName(Player* player) { return player->spec; }
     uint32 GetPlayerSpecId(Player*) { return 3; }
     bool ShouldEquipWeaponForSpec(uint8, uint32, const ItemPrototype*) const { return true; }
     bool ShouldEquipArmorForSpec(uint8, uint32, const ItemPrototype*) const { return true; }
@@ -165,7 +181,7 @@ RandomItemMgr sRandomItemMgr;
 uint32 urand(uint32 low, uint32) { return low; }
 
 #define AI_VALUE2(type, name, qualifier) (context->inventory)
-#define AI_VALUE2_EXISTS(type, name, qualifier, fallback) (fallback)
+#define AI_VALUE2_EXISTS(type, name, qualifier, fallback) (context->forcedItem && context->forcedItem == (qualifier) ? ForceItemUsage::FORCE_USAGE_EQUIP : (fallback))
 #include "item_usage_equip_source.inc"
 #undef AI_VALUE2_EXISTS
 #undef AI_VALUE2
@@ -241,6 +257,68 @@ namespace
         warrior.proficiency = false;
         Check(usage(white) == ItemUsage::ITEM_USAGE_NONE, "normal weapon proficiency still applies when replacing gray gear");
     }
+
+    void CheckCasterStaffUsage()
+    {
+        const ItemPrototype mainProto{70, ITEM_QUALITY_NORMAL, 11};
+        const ItemPrototype offhandProto{40, ITEM_QUALITY_NORMAL, 12, INVTYPE_HOLDABLE, ITEM_CLASS_ARMOR};
+        const ItemPrototype shieldProto{40, ITEM_QUALITY_NORMAL, 16, INVTYPE_SHIELD, ITEM_CLASS_ARMOR};
+        const ItemPrototype strongProto{120, ITEM_QUALITY_NORMAL, 13, INVTYPE_2HWEAPON, ITEM_CLASS_WEAPON, ITEM_SUBCLASS_WEAPON_STAFF};
+        const ItemPrototype weakProto{100, ITEM_QUALITY_NORMAL, 14, INVTYPE_2HWEAPON, ITEM_CLASS_WEAPON, ITEM_SUBCLASS_WEAPON_STAFF};
+        const ItemPrototype tiedProto{110, ITEM_QUALITY_NORMAL + 1, 15, INVTYPE_2HWEAPON, ITEM_CLASS_WEAPON, ITEM_SUBCLASS_WEAPON_STAFF};
+        const std::pair<uint8, const char*> specs[] = {
+            {CLASS_MAGE, "frost"}, {CLASS_WARLOCK, "afflic"}, {CLASS_PRIEST, "disc"},
+            {CLASS_PRIEST, "holy"}, {CLASS_PRIEST, "shadow"}, {CLASS_DRUID, "balance"},
+            {CLASS_DRUID, "resto"}, {CLASS_SHAMAN, "elem"}, {CLASS_SHAMAN, "resto"}
+        };
+        for (const auto& [clazz, spec] : specs)
+        {
+            Player caster;
+            caster.clazz = clazz;
+            caster.spec = spec;
+            const ItemPrototype& offProto = clazz == CLASS_SHAMAN ? shieldProto : offhandProto;
+            Item main{&mainProto}, off{&offProto, 1}, strong{&strongProto}, weak{&weakProto}, tied{&tiedProto};
+            caster.mainHand = &main;
+            caster.offHand = &off;
+            const auto usage = [&](Item& item, bool inBags = true)
+            {
+                caster.ai.context.inventory.clear();
+                caster.unseenItem = item.GetProto();
+                if (inBags)
+                    caster.ai.context.inventory.push_back(&item);
+                ItemQualifier qualifier(&item);
+                return ItemUsageValue::QueryItemUsageForEquip(qualifier, &caster);
+            };
+
+            Check(usage(strong) == ItemUsage::ITEM_USAGE_EQUIP, "a stronger staff replaces both equipped hands");
+            Check(usage(strong, false) == ItemUsage::ITEM_USAGE_EQUIP, "an unseen stronger staff uses the same comparison");
+            Check(usage(weak) == ItemUsage::ITEM_USAGE_NONE, "a staff weaker than the complete pair is rejected");
+            Check(usage(tied) == ItemUsage::ITEM_USAGE_NONE, "a quality upgrade alone does not break an equal pair");
+            caster.offhandStorage = false;
+            Check(usage(strong) == ItemUsage::ITEM_USAGE_NONE, "the core must be able to store the offhand");
+            caster.offhandStorage = true;
+            caster.ai.context.forcedItem = offProto.ItemId;
+            Check(usage(strong) == ItemUsage::ITEM_USAGE_KEEP, "a forced offhand stays equipped");
+            caster.ai.context.forcedItem = 0;
+            off.broken = true;
+            Check(usage(weak) == ItemUsage::ITEM_USAGE_EQUIP, "a broken offhand adds no effective weight");
+            caster.offHand = nullptr;
+            caster.mainHand = &weak;
+            Check(usage(strong) == ItemUsage::ITEM_USAGE_EQUIP, "an existing staff is compared using its own score");
+            caster.proficiency = false;
+            Check(usage(strong) == ItemUsage::ITEM_USAGE_NONE, "staff proficiency remains required");
+        }
+
+        Player other;
+        other.clazz = CLASS_SHAMAN;
+        other.spec = "enhance";
+        Check(!ItemUsageValue::UsesCasterStaffComparison(&other), "enhancement follows its existing weapon rules");
+        other.clazz = CLASS_DRUID;
+        other.spec = "feraltank";
+        Check(!ItemUsageValue::UsesCasterStaffComparison(&other), "feral tank follows its existing weapon rules");
+        other.spec = "feraldps";
+        Check(!ItemUsageValue::UsesCasterStaffComparison(&other), "feral DPS follows its existing weapon rules");
+    }
 }
 
 int main()
@@ -249,6 +327,7 @@ int main()
     CheckScorer("equipment", [&](ItemQualifier& item) { return sRandomItemMgr.ItemStatWeight(&bot, item); });
     CheckScorer("exchange", [&](ItemQualifier& item) { return ItemWeight(&bot, 3, item); });
     CheckAutomaticWeaponUsage();
+    CheckCasterStaffUsage();
 
     const ItemPrototype proto{100};
     for (uint32 enchant : {0u, 1u, 999u})

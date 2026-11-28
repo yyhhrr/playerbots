@@ -237,7 +237,7 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
     {
         oldItem = bot->GetItemByPos(dest);
 
-        if (oldItem && oldItem->GetSlot() == EQUIPMENT_SLOT_MAINHAND && item->GetProto()->InventoryType == INVTYPE_2HWEAPON)
+        if ((dest & 0xFF) == EQUIPMENT_SLOT_MAINHAND && item->GetProto()->InventoryType == INVTYPE_2HWEAPON)
             oldOffhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
     }
 
@@ -274,6 +274,8 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
             WorldPacket packet(CMSG_AUTOEQUIP_ITEM, 2);
             packet << bagIndex << slot;
             bot->GetSession()->HandleAutoEquipItemOpcode(packet);
+            if (result != EQUIP_ERR_OK || bot->GetItemByPos(dest) != item)
+                return;
         }
     }
 
@@ -374,12 +376,23 @@ bool EquipUpgradesAction::Execute(Event& event)
 
     Item* oldMainhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
     Item* oldOffhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-        
-    // Leave an existing poor weapon or shield equipped until a replacement succeeds.
-    if (oldMainhand && oldMainhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
-        UnequipAction::UnequipItem(ai, bot, oldMainhand, true);
-    if (oldOffhand && oldOffhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
-        UnequipAction::UnequipItem(ai, bot, oldOffhand, true);
+    const bool compareCasterHands = ItemUsageValue::UsesCasterStaffComparison(bot);
+    if (compareCasterHands)
+    {
+        // Evaluate staves against both occupied slots, with a fresh bag scan.
+        FindItemsByClassVisitor staves(ITEM_CLASS_WEAPON, ITEM_SUBCLASS_WEAPON_STAFF);
+        ai->InventoryIterateItems(&staves, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        for (Item* staff : staves.GetResult())
+            RESET_AI_VALUE2(ItemUsage, "item usage", ItemQualifier(staff).GetQualifier());
+    }
+    else
+    {
+        // Leave an existing poor weapon or shield equipped until a replacement succeeds.
+        if (oldMainhand && oldMainhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
+            UnequipAction::UnequipItem(ai, bot, oldMainhand, true);
+        if (oldOffhand && oldOffhand->GetProto()->Quality >= ITEM_QUALITY_NORMAL)
+            UnequipAction::UnequipItem(ai, bot, oldOffhand, true);
+    }
 
     context->ClearExpiredValues("item usage", 10); //Clear old item usage.
 
@@ -393,11 +406,11 @@ bool EquipUpgradesAction::Execute(Event& event)
 
     bool didEquip = false;
 
-    items.sort([plr = bot](Item* i, Item* j) {
+    items.sort([plr = bot, compareCasterHands](Item* i, Item* j) {
         bool iMain = i->GetProto()->InventoryType == INVTYPE_WEAPONMAINHAND;
         bool jMain = j->GetProto()->InventoryType == INVTYPE_WEAPONMAINHAND;
 
-        if (iMain != jMain)
+        if (!compareCasterHands && iMain != jMain)
             return iMain; // mainhand comes first
 
         return sRandomItemMgr.ItemStatWeight(plr, i) > sRandomItemMgr.ItemStatWeight(plr, j); });
@@ -414,13 +427,20 @@ bool EquipUpgradesAction::Execute(Event& event)
             continue;
 #endif
 
-        ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", ItemQualifier(item).GetQualifier());
+        const auto qualifier = ItemQualifier(item).GetQualifier();
+        const bool casterHandItem = compareCasterHands &&
+            (proto->Class == ITEM_CLASS_WEAPON || proto->InventoryType == INVTYPE_HOLDABLE || proto->InventoryType == INVTYPE_SHIELD);
+        if (casterHandItem)
+            RESET_AI_VALUE2(ItemUsage, "item usage", qualifier);
+        ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", qualifier);
         if (usage == ItemUsage::ITEM_USAGE_EQUIP || usage == ItemUsage::ITEM_USAGE_BAD_EQUIP)
         {
             sLog.outDetail("Bot #%d <%s> auto equips item %d (%s)", bot->GetGUIDLow(), bot->GetName(), item->GetProto()->ItemId, usage == ItemUsage::ITEM_USAGE_EQUIP ? "better than current" : usage == ItemUsage::ITEM_USAGE_BAD_EQUIP ? "wrong item but empty slot" : "");
             ai->TellDebug(ai->GetMaster(), "Equipping: " + chat->formatItem(item) + " - " + ItemUsageValue::ReasonForNeed(usage, item, 1, bot), "debug equip");
 
-            EquipItem(ai, GetMaster(), item, item == oldMainhand || item == oldOffhand);  
+            EquipItem(ai, GetMaster(), item, item == oldMainhand || item == oldOffhand);
+            if (casterHandItem && !item->IsEquipped())
+                continue;
             didEquip = true;
 
             // auto enchant if cheat is turned on

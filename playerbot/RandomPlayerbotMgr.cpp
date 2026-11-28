@@ -2244,14 +2244,14 @@ Item* RandomPlayerbotMgr::CreateTempItem(uint32 item, uint32 count, Player const
     return nullptr;
 }
 
-InventoryResult RandomPlayerbotMgr::CanEquipUnseenItem(Player* player, uint8 slot, uint16& dest, uint32 item)
+InventoryResult RandomPlayerbotMgr::CanEquipUnseenItem(Player* player, uint8 slot, uint16& dest, uint32 item, bool directAction)
 {
     dest = 0;
     Item* pItem = RandomPlayerbotMgr::CreateTempItem(item, 1, player);
 
     if (pItem)
     {
-        InventoryResult result = player->CanEquipItem(slot, dest, pItem, true, false);
+        InventoryResult result = player->CanEquipItem(slot, dest, pItem, true, directAction);
 
         pItem->RemoveFromUpdateQueueOf(player);
 
